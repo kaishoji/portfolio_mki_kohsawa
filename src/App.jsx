@@ -1,16 +1,14 @@
 import BallScene from "./components/BallScene";
 import "./App.css";
 
-function App() {
+export default function App() {
   return (
-    <div className="container">
+    <div className="app-container">
+      <BallScene />
+
       <div className="title">
         <h1>Kai Ohsawa</h1>
       </div>
-      <BallScene />
     </div>
   );
 }
-
-export default App;
-
