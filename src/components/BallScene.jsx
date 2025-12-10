@@ -2,36 +2,70 @@
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Suspense, useMemo, useRef, useState } from "react";
 
-function InteractiveBall({ position, color, floatSpeed, mouse }) {
+function InteractiveBall({ data, mouse }) {
   const ref = useRef();
+  const velocity = useRef([0, 0, 0]);
   const [hovered, setHovered] = useState(false);
+
+  const { position, color, floatSpeed, radius } = data;
 
   useFrame((state) => {
     if (!ref.current) return;
 
     const t = state.clock.elapsedTime * floatSpeed;
 
-    // Base bobbing around its "home" position
-    const baseX = position[0] + Math.cos(t * 0.7) * 0.15;
-    const baseY = position[1] + Math.sin(t) * 0.25;
+    // Gentle base bobbing (weaker than before)
+    const baseX = position[0] + Math.cos(t * 0.6) * 0.08;
+    const baseY = position[1] + Math.sin(t) * 0.12;
     const baseZ = position[2];
 
-    // Mouse-based parallax (subtle follow)
-    const [mx, my] = mouse.current;
-    const parallaxStrength = 0.6; // tweak for more / less follow
-    const depthFactor = 1 + Math.abs(baseZ); // farther = slightly more movement
+    // Mouse position mapped to a plane in front of the cluster
+    const [mx, my] = mouse.current; // in [-1, 1]
+    const mouseWorldX = mx * 2.0;
+    const mouseWorldY = my * 1.2;
+    const mouseWorldZ = -1.8;
 
-    const offsetX = mx * parallaxStrength * 0.3 * depthFactor;
-    const offsetY = my * parallaxStrength * 0.3 * depthFactor;
+    // Simple "push away" force when mouse is near
+    const posNow = [baseX, baseY, baseZ];
+    const dx = posNow[0] - mouseWorldX;
+    const dy = posNow[1] - mouseWorldY;
+    const dz = posNow[2] - mouseWorldZ;
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-    ref.current.position.set(baseX + offsetX, baseY + offsetY, baseZ);
+    const influenceRadius = 2.5; // how far the mouse influence reaches
+    if (dist < influenceRadius && dist > 0.001) {
+      const strength = (influenceRadius - dist) * 0.015;
+      const nx = dx / dist;
+      const ny = dy / dist;
+      const nz = dz / dist;
+      velocity.current[0] += nx * strength;
+      velocity.current[1] += ny * strength;
+      velocity.current[2] += nz * strength;
+    }
+
+    // Dampen velocity so motion calms down over time
+    velocity.current[0] *= 0.9;
+    velocity.current[1] *= 0.9;
+    velocity.current[2] *= 0.9;
+
+    // Subtle global mouse-follow parallax
+    const parallaxStrength = 0.4;
+    const depthFactor = 1 + Math.abs(baseZ);
+    const parallaxX = mx * parallaxStrength * 0.2 * depthFactor;
+    const parallaxY = my * parallaxStrength * 0.2 * depthFactor;
+
+    const finalX = baseX + parallaxX + velocity.current[0];
+    const finalY = baseY + parallaxY + velocity.current[1];
+    const finalZ = baseZ + velocity.current[2];
+
+    ref.current.position.set(finalX, finalY, finalZ);
 
     // Slow spin
     ref.current.rotation.y += 0.01;
     ref.current.rotation.x += 0.006;
 
     // Smooth hover scale
-    const targetScale = hovered ? 1.35 : 1;
+    const targetScale = hovered ? 1.4 : 1;
     ref.current.scale.lerp(
       { x: targetScale, y: targetScale, z: targetScale },
       0.12
@@ -44,67 +78,75 @@ function InteractiveBall({ position, color, floatSpeed, mouse }) {
       onPointerOver={() => setHovered(true)}
       onPointerOut={() => setHovered(false)}
     >
-      <sphereGeometry args={[0.45, 32, 32]} />
+      <sphereGeometry args={[radius, 32, 32]} />
       <meshStandardMaterial
         color={color}
         metalness={0.4}
-        roughness={0.25}
-        // "Glow" effect via emissive
+        roughness={0.3}
+        // glow-on-hover via emissive
         emissive={color}
-        emissiveIntensity={hovered ? 1.6 : 0.3}
+        emissiveIntensity={hovered ? 1.8 : 0.35}
       />
     </mesh>
   );
 }
 
 export default function BallScene() {
-  const count = 45; // denser cluster
+  const count = 50; // slightly denser
   const mouse = useRef([0, 0]);
 
-  // Generate non-overlapping positions
-  const { positions, colors, speeds } = useMemo(() => {
-    const positions = [];
-    const colors = [];
-    const speeds = [];
-
-    const palette = ["#9cd3ff", "#ff9ce6", "#9effc4", "#ffe29c", "#b69cff"];
-
-    const radius = 0.45;
-    const minDist = radius * 2.3; // keep them from clipping
-    const maxTries = 5000;
+  // Generate non-overlapping balls with varying sizes & grey shades
+  const balls = useMemo(() => {
+    const items = [];
+    const maxTries = 6000;
     let tries = 0;
 
-    while (positions.length < count && tries < maxTries) {
+    while (items.length < count && tries < maxTries) {
       tries++;
 
-      // Compact cluster behind the text
-      const x = (Math.random() - 0.5) * 4;  // tighter horizontally
-      const y = (Math.random() - 0.5) * 2.5;
-      const z = -1.5 - Math.random() * 2.5; // behind the text
+      const radius = 0.25 + Math.random() * 0.4; // varying size
 
-      const candidate = [x, y, z];
+      // compact cluster behind text
+      const x = (Math.random() - 0.5) * 4;
+      const y = (Math.random() - 0.5) * 2.6;
+      const z = -1.5 - Math.random() * 2.5;
 
+      const candidatePos = [x, y, z];
+
+      // spacing based on each ball's radius so they don't clip
       let ok = true;
-      for (let i = 0; i < positions.length; i++) {
-        const p = positions[i];
-        const dx = p[0] - candidate[0];
-        const dy = p[1] - candidate[1];
-        const dz = p[2] - candidate[2];
+      for (let i = 0; i < items.length; i++) {
+        const other = items[i];
+        const dx = other.position[0] - candidatePos[0];
+        const dy = other.position[1] - candidatePos[1];
+        const dz = other.position[2] - candidatePos[2];
         const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        const minDist = (other.radius + radius) * 1.15;
         if (dist < minDist) {
           ok = false;
           break;
         }
       }
-
       if (!ok) continue;
 
-      positions.push(candidate);
-      colors.push(palette[Math.floor(Math.random() * palette.length)]);
-      speeds.push(0.4 + Math.random() * 0.7);
+      // random grey shade
+      const shade = 0.35 + Math.random() * 0.55; // 0..1
+      const hex = Math.round(shade * 255)
+        .toString(16)
+        .padStart(2, "0");
+      const color = `#${hex}${hex}${hex}`;
+
+      const floatSpeed = 0.45 + Math.random() * 0.5;
+
+      items.push({
+        position: candidatePos,
+        color,
+        floatSpeed,
+        radius,
+      });
     }
 
-    return { positions, colors, speeds };
+    return items;
   }, [count]);
 
   return (
@@ -117,10 +159,10 @@ export default function BallScene() {
         height: "100vh",
       }}
       camera={{ position: [0, 0, 5], fov: 50 }}
-      // track mouse in normalized device coords
       onPointerMove={(e) => {
-        const x = (e.pointer.x / window.innerWidth) * 2 - 1;
-        const y = -((e.pointer.y / window.innerHeight) * 2 - 1);
+        // normalize pointer to [-1, 1]
+        const x = (e.clientX / window.innerWidth) * 2 - 1;
+        const y = -((e.clientY / window.innerHeight) * 2 - 1);
         mouse.current = [x, y];
       }}
     >
@@ -129,19 +171,13 @@ export default function BallScene() {
       <fog attach="fog" args={["#050816", 4, 12]} />
 
       {/* Lights */}
-      <ambientLight intensity={0.5} />
+      <ambientLight intensity={0.55} />
       <directionalLight position={[5, 5, 5]} intensity={1.4} />
       <pointLight position={[-4, -3, 2]} intensity={0.7} />
 
       <Suspense fallback={null}>
-        {positions.map((pos, i) => (
-          <InteractiveBall
-            key={i}
-            position={pos}
-            color={colors[i]}
-            floatSpeed={speeds[i]}
-            mouse={mouse}
-          />
+        {balls.map((data, i) => (
+          <InteractiveBall key={i} data={data} mouse={mouse} />
         ))}
       </Suspense>
     </Canvas>
