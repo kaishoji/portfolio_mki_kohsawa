@@ -1,15 +1,11 @@
-import BallScene from "./components/BallScene";
-import "./App.css";
+import { Canvas } from "@react-three/fiber";
 
-function App() {
+export default function App() {
   return (
-    <div className="container">
-      <div className="title">
-        <h1>Kai Ohsawa</h1>
-      </div>
-      <BallScene />
+    <div style={{ height: "100vh", width: "100vw" }}>
+      <Canvas>
+        <color attach="background" args={["hotpink"]} />
+      </Canvas>
     </div>
   );
 }
-
-export default App;
