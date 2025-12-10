@@ -1,79 +1,111 @@
 // src/components/BallScene.jsx
 import { Canvas, useFrame } from "@react-three/fiber";
-import { useMemo, useRef, useState, Suspense } from "react";
-import { OrbitControls } from "@react-three/drei";
+import { Suspense, useMemo, useRef, useState } from "react";
 
-function InteractiveBall({ seed }) {
+function InteractiveBall({ position, color, floatSpeed, mouse }) {
   const ref = useRef();
   const [hovered, setHovered] = useState(false);
 
-  // Stable random-ish values based on the seed
-  const { position, color, floatSpeed } = useMemo(() => {
-    const rand = (n) => {
-      const x = Math.sin(seed * 9999 * (n + 1)) * 43758.5453;
-      return x - Math.floor(x);
-    };
-
-    // Spread them in a cluster behind the text
-    const x = (rand(1) - 0.5) * 6;   // left/right
-    const y = (rand(2) - 0.5) * 3;   // up/down
-    const z = -1.5 - rand(3) * 2;    // slightly behind the text
-
-    const colors = ["#9cd3ff", "#ff9ce6", "#9effc4", "#ffe29c"];
-    const color = colors[Math.floor(rand(4) * colors.length)];
-
-    const floatSpeed = 0.4 + rand(5) * 0.6;
-
-    return {
-      position: [x, y, z],
-      color,
-      floatSpeed,
-    };
-  }, [seed]);
-
   useFrame((state) => {
-    const t = state.clock.elapsedTime * floatSpeed;
     if (!ref.current) return;
 
-    // Gentle bobbing motion
-    ref.current.position.y =
-      position[1] + Math.sin(t + seed) * 0.25;
-    ref.current.position.x =
-      position[0] + Math.cos(t * 0.7 + seed) * 0.15;
+    const t = state.clock.elapsedTime * floatSpeed;
 
-    // Slow rotation
+    // Base bobbing around its "home" position
+    const baseX = position[0] + Math.cos(t * 0.7) * 0.15;
+    const baseY = position[1] + Math.sin(t) * 0.25;
+    const baseZ = position[2];
+
+    // Mouse-based parallax (subtle follow)
+    const [mx, my] = mouse.current;
+    const parallaxStrength = 0.6; // tweak for more / less follow
+    const depthFactor = 1 + Math.abs(baseZ); // farther = slightly more movement
+
+    const offsetX = mx * parallaxStrength * 0.3 * depthFactor;
+    const offsetY = my * parallaxStrength * 0.3 * depthFactor;
+
+    ref.current.position.set(baseX + offsetX, baseY + offsetY, baseZ);
+
+    // Slow spin
     ref.current.rotation.y += 0.01;
-    ref.current.rotation.x += 0.005;
+    ref.current.rotation.x += 0.006;
 
-    // Hover scale animation
-    const targetScale = hovered ? 1.3 : 1;
+    // Smooth hover scale
+    const targetScale = hovered ? 1.35 : 1;
     ref.current.scale.lerp(
       { x: targetScale, y: targetScale, z: targetScale },
-      0.1
+      0.12
     );
   });
 
   return (
     <mesh
       ref={ref}
-      position={position}
       onPointerOver={() => setHovered(true)}
       onPointerOut={() => setHovered(false)}
     >
       <sphereGeometry args={[0.45, 32, 32]} />
       <meshStandardMaterial
         color={color}
-        metalness={0.5}
-        roughness={0.3}
-        emissive={hovered ? color : "black"}
-        emissiveIntensity={hovered ? 0.7 : 0.2}
+        metalness={0.4}
+        roughness={0.25}
+        // "Glow" effect via emissive
+        emissive={color}
+        emissiveIntensity={hovered ? 1.6 : 0.3}
       />
     </mesh>
   );
 }
 
 export default function BallScene() {
-  const count = 30;
+  const count = 45; // denser cluster
+  const mouse = useRef([0, 0]);
+
+  // Generate non-overlapping positions
+  const { positions, colors, speeds } = useMemo(() => {
+    const positions = [];
+    const colors = [];
+    const speeds = [];
+
+    const palette = ["#9cd3ff", "#ff9ce6", "#9effc4", "#ffe29c", "#b69cff"];
+
+    const radius = 0.45;
+    const minDist = radius * 2.3; // keep them from clipping
+    const maxTries = 5000;
+    let tries = 0;
+
+    while (positions.length < count && tries < maxTries) {
+      tries++;
+
+      // Compact cluster behind the text
+      const x = (Math.random() - 0.5) * 4;  // tighter horizontally
+      const y = (Math.random() - 0.5) * 2.5;
+      const z = -1.5 - Math.random() * 2.5; // behind the text
+
+      const candidate = [x, y, z];
+
+      let ok = true;
+      for (let i = 0; i < positions.length; i++) {
+        const p = positions[i];
+        const dx = p[0] - candidate[0];
+        const dy = p[1] - candidate[1];
+        const dz = p[2] - candidate[2];
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (dist < minDist) {
+          ok = false;
+          break;
+        }
+      }
+
+      if (!ok) continue;
+
+      positions.push(candidate);
+      colors.push(palette[Math.floor(Math.random() * palette.length)]);
+      speeds.push(0.4 + Math.random() * 0.7);
+    }
+
+    return { positions, colors, speeds };
+  }, [count]);
 
   return (
     <Canvas
@@ -85,24 +117,33 @@ export default function BallScene() {
         height: "100vh",
       }}
       camera={{ position: [0, 0, 5], fov: 50 }}
+      // track mouse in normalized device coords
+      onPointerMove={(e) => {
+        const x = (e.pointer.x / window.innerWidth) * 2 - 1;
+        const y = -((e.pointer.y / window.innerHeight) * 2 - 1);
+        mouse.current = [x, y];
+      }}
     >
       {/* Background */}
       <color attach="background" args={["#050816"]} />
       <fog attach="fog" args={["#050816", 4, 12]} />
 
       {/* Lights */}
-      <ambientLight intensity={0.4} />
-      <directionalLight position={[5, 5, 5]} intensity={1.2} />
-      <pointLight position={[-4, -3, 2]} intensity={0.6} />
+      <ambientLight intensity={0.5} />
+      <directionalLight position={[5, 5, 5]} intensity={1.4} />
+      <pointLight position={[-4, -3, 2]} intensity={0.7} />
 
       <Suspense fallback={null}>
-        {Array.from({ length: count }).map((_, i) => (
-          <InteractiveBall key={i} seed={i + 1} />
+        {positions.map((pos, i) => (
+          <InteractiveBall
+            key={i}
+            position={pos}
+            color={colors[i]}
+            floatSpeed={speeds[i]}
+            mouse={mouse}
+          />
         ))}
       </Suspense>
-
-      {/* Optional: let you orbit the camera a bit; disable zoom so it feels like a background */}
-      <OrbitControls enableZoom={false} enablePan={false} />
     </Canvas>
   );
 }
