@@ -10,6 +10,11 @@ import {
   Glitch,
 } from "@react-three/postprocessing";
 
+// ======================================
+// DYNAMIC FONT PATH (safe for Vite + GH Pages)
+// ======================================
+const fontURL = import.meta.env.BASE_URL + "fonts/Orbitron-Bold.ttf";
+
 /* ===========================
    INTERACTIVE NEON BALL
    =========================== */
@@ -23,63 +28,54 @@ function InteractiveBall({ data, mouse, isMobile, onBallClick }) {
 
     const t = state.clock.getElapsedTime();
 
-    // Gentle idle bobbing
+    // Idle bobbing
     const bobFactor = isMobile ? 0.5 : 0.6;
     const bobX = Math.cos(t * floatSpeed * bobFactor) * 0.03;
     const bobY = Math.sin(t * floatSpeed) * 0.05;
+
     const baseX = position[0] + bobX;
     const baseY = position[1] + bobY;
     const baseZ = position[2];
 
-    // Mouse mapping (NDC → pseudo world plane)
+    // Mouse force field
     const [mx, my] = mouse.current;
-    const mouseWorldX = mx * 2.0;
-    const mouseWorldY = my * 1.5;
-    const mouseWorldZ = 0.0;
+    const mdx = baseX - mx * 2.0;
+    const mdy = baseY - my * 1.5;
+    const mdz = baseZ - 0.0;
 
-    // Push-away physics
-    const dx = baseX - mouseWorldX;
-    const dy = baseY - mouseWorldY;
-    const dz = baseZ - mouseWorldZ;
-    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-
+    const dist = Math.sqrt(mdx * mdx + mdy * mdy + mdz * mdz);
     const influenceRadius = isMobile ? 1.4 : 1.8;
+
     if (dist < influenceRadius && dist > 0.0001) {
       const strength = (influenceRadius - dist) * (isMobile ? 0.045 : 0.06);
-      velocity.current[0] += (dx / dist) * strength;
-      velocity.current[1] += (dy / dist) * strength;
-      velocity.current[2] += (dz / dist) * strength;
+      velocity.current[0] += (mdx / dist) * strength;
+      velocity.current[1] += (mdy / dist) * strength;
+      velocity.current[2] += (mdz / dist) * strength;
     }
 
-    // Damping
+    // damping
     const damping = isMobile ? 0.9 : 0.88;
     velocity.current[0] *= damping;
     velocity.current[1] *= damping;
     velocity.current[2] *= damping;
 
-    const finalX = baseX + velocity.current[0];
-    const finalY = baseY + velocity.current[1];
-    const finalZ = baseZ + velocity.current[2];
+    ref.current.position.set(
+      baseX + velocity.current[0],
+      baseY + velocity.current[1],
+      baseZ + velocity.current[2]
+    );
 
-    ref.current.position.set(finalX, finalY, finalZ);
-
-    // Spin
+    // spin
     ref.current.rotation.y += 0.01;
     ref.current.rotation.x += 0.006;
 
-    // Color-shift in HSL over time
+    // color shift
     const mat = ref.current.material;
     if (mat) {
       const hueDeg = (baseHue + t * shiftSpeed * 30) % 360;
-      const h = hueDeg / 360;
-      const s = sat / 100;
-      const l = light / 100;
-
-      mat.color.setHSL(h, s, l);
-      mat.emissive.setHSL(h, s, Math.min(l + 0.2, 1));
+      mat.color.setHSL(hueDeg / 360, sat / 100, light / 100);
+      mat.emissive.setHSL(hueDeg / 360, sat / 100, Math.min(light / 100 + 0.2, 1));
     }
-
-    ref.current.scale.set(1, 1, 1);
   });
 
   return (
@@ -89,7 +85,7 @@ function InteractiveBall({ data, mouse, isMobile, onBallClick }) {
         color="white"
         metalness={0.4}
         roughness={0.25}
-        emissive="#000000"
+        emissive="#000"
         emissiveIntensity={0.05}
       />
     </mesh>
@@ -97,7 +93,7 @@ function InteractiveBall({ data, mouse, isMobile, onBallClick }) {
 }
 
 /* ===========================
-   HOLOGRAPHIC PARALLAX GRID
+   HOLOGRAPHIC GRID
    =========================== */
 function HolographicGrid({ mouse, isMobile }) {
   const ref = useRef();
@@ -108,8 +104,7 @@ function HolographicGrid({ mouse, isMobile }) {
 
     const t = state.clock.getElapsedTime();
     const geom = ref.current.geometry;
-    const posAttr = geom.attributes.position;
-    const arr = posAttr.array;
+    const arr = geom.attributes.position.array;
 
     if (!basePositions.current) {
       basePositions.current = Float32Array.from(arr);
@@ -117,10 +112,8 @@ function HolographicGrid({ mouse, isMobile }) {
     const base = basePositions.current;
 
     const [mx, my] = mouse.current;
-    const planeWidth = 6;
-    const planeHeight = 3.2;
-    const targetX = (mx * planeWidth) / 2;
-    const targetY = (my * planeHeight) / 2;
+    const targetX = mx * 3;
+    const targetY = my * 1.6;
 
     const bendRadius = isMobile ? 2.0 : 2.4;
     const maxOffset = isMobile ? 0.25 : 0.4;
@@ -133,54 +126,35 @@ function HolographicGrid({ mouse, isMobile }) {
       const dx = x0 - targetX;
       const dy = y0 - targetY;
       const dist = Math.sqrt(dx * dx + dy * dy);
-
       const influence = Math.max(0, 1 - dist / bendRadius);
-      const offset = influence * maxOffset;
 
       const waveAmp = isMobile ? 0.04 : 0.06;
-      const wave = Math.sin(t * 1.2 + (x0 + y0) * 2.0) * waveAmp * influence;
+      const wave = Math.sin(t * 1.3 + (x0 + y0) * 2.0) * waveAmp * influence;
 
       arr[i] = x0;
       arr[i + 1] = y0;
-      arr[i + 2] = z0 + offset + wave;
+      arr[i + 2] = z0 + influence * maxOffset + wave;
     }
-    posAttr.needsUpdate = true;
 
+    geom.attributes.position.needsUpdate = true;
+
+    // slight parallax tilt
     ref.current.rotation.x = -0.35 + my * 0.08;
     ref.current.rotation.y = mx * 0.12;
-    ref.current.position.x = mx * 0.25;
-    ref.current.position.y = my * 0.18;
-
-    const mat = ref.current.material;
-    if (mat) {
-      const baseOpacity = isMobile ? 0.18 : 0.24;
-      const pulse = Math.sin(t * 1.1) * 0.04;
-      mat.opacity = baseOpacity + pulse;
-    }
   });
 
   return (
     <mesh position={[0, 0, -0.7]} ref={ref}>
       <planeGeometry
-        args={[
-          6,
-          3.2,
-          isMobile ? 20 : 40, // fewer segments on mobile
-          isMobile ? 10 : 20,
-        ]}
+        args={[6, 3.2, isMobile ? 20 : 40, isMobile ? 10 : 20]}
       />
-      <meshBasicMaterial
-        color="#41f5ff"
-        wireframe
-        transparent
-        opacity={0.25}
-      />
+      <meshBasicMaterial color="#41f5ff" wireframe transparent opacity={0.25} />
     </mesh>
   );
 }
 
 /* ===========================
-   NEON PARTICLE STREAKS
+   PARTICLE STREAKS
    =========================== */
 function NeonParticles({ particleCount }) {
   const ref = useRef();
@@ -188,55 +162,47 @@ function NeonParticles({ particleCount }) {
   const { positions, speeds } = useMemo(() => {
     const positions = new Float32Array(particleCount * 3);
     const speeds = new Float32Array(particleCount);
-
     for (let i = 0; i < particleCount; i++) {
-      const ix = i * 3;
-      positions[ix + 0] = (Math.random() - 0.5) * 8;
-      positions[ix + 1] = (Math.random() - 0.5) * 5;
-      positions[ix + 2] = -3 - Math.random() * 5;
-
+      const j = i * 3;
+      positions[j] = (Math.random() - 0.5) * 8;
+      positions[j + 1] = (Math.random() - 0.5) * 5;
+      positions[j + 2] = -3 - Math.random() * 5;
       speeds[i] = 0.6 + Math.random() * 1.4;
     }
-
     return { positions, speeds };
   }, [particleCount]);
 
-  useFrame((state, delta) => {
+  useFrame((_, delta) => {
     const pts = ref.current;
-    if (!pts) return;
-
-    const posAttr = pts.geometry.attributes.position;
-    const arr = posAttr.array;
-    const speedsArr = pts.userData.speeds;
+    const arr = pts.geometry.attributes.position.array;
+    const v = pts.userData.speeds;
 
     for (let i = 0; i < particleCount; i++) {
-      const ix = i * 3;
-      arr[ix + 2] += speedsArr[i] * delta;
-      arr[ix + 1] += delta * 0.08;
+      const j = i * 3;
+      arr[j + 2] += v[i] * delta;
+      arr[j + 1] += delta * 0.08;
 
-      if (arr[ix + 2] > -2.5) {
-        arr[ix + 0] = (Math.random() - 0.5) * 8;
-        arr[ix + 1] = (Math.random() - 0.5) * 5;
-        arr[ix + 2] = -8 - Math.random() * 4;
-        speedsArr[i] = 0.6 + Math.random() * 1.4;
+      if (arr[j + 2] > -2.5) {
+        arr[j] = (Math.random() - 0.5) * 8;
+        arr[j + 1] = (Math.random() - 0.5) * 5;
+        arr[j + 2] = -8 - Math.random() * 4;
+        v[i] = 0.6 + Math.random() * 1.4;
       }
     }
 
-    posAttr.needsUpdate = true;
+    pts.geometry.attributes.position.needsUpdate = true;
   });
 
   return (
     <points
       ref={ref}
-      onUpdate={(pts) => {
-        pts.userData.speeds = speeds;
-      }}
+      onUpdate={(p) => (p.userData.speeds = speeds)}
     >
       <bufferGeometry>
         <bufferAttribute
           attach="attributes-position"
-          count={positions.length / 3}
           array={positions}
+          count={positions.length / 3}
           itemSize={3}
         />
       </bufferGeometry>
@@ -257,139 +223,115 @@ function NeonParticles({ particleCount }) {
 export default function BallScene({ onBallClick }) {
   const mouse = useRef([0, 0]);
 
-  const isMobile =
-    typeof window !== "undefined" && window.innerWidth < 768;
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
 
-  const count = isMobile ? 24 : 40;
+  const ballCount = isMobile ? 24 : 40;
   const particleCount = isMobile ? 90 : 180;
 
+  // Generate ball positions & colors
   const balls = useMemo(() => {
-    const items = [];
-    const maxTries = 8000;
-    let tries = 0;
+    const arr = [];
+    const maxAttempts = 9000;
+    let attempts = 0;
 
-    const textWidth = 2.4;
-    const textHeight = 0.9;
-    const frontChance = 0.18;
+    const textW = 2.4;
+    const textH = 0.9;
 
-    while (items.length < count && tries < maxTries) {
-      tries++;
-
+    while (arr.length < ballCount && attempts < maxAttempts) {
+      attempts++;
       const radius = 0.22 + Math.random() * 0.32;
-      const isFront = Math.random() < frontChance;
-
       let x = (Math.random() - 0.5) * 4.4;
       let y = (Math.random() - 0.5) * 2.6;
+      let z = Math.random() < 0.18 ? 0.4 : -1.4 - Math.random() * 2.2;
 
-      if (isFront) {
-        let safe = 0;
+      // avoid overlapping name area (front orbs only)
+      if (z > 0) {
+        let guard = 0;
         while (
-          Math.abs(x) < textWidth / 2 + radius * 1.2 &&
-          Math.abs(y) < textHeight / 2 + radius * 1.2 &&
-          safe < 30
+          Math.abs(x) < textW / 2 + radius &&
+          Math.abs(y) < textH / 2 + radius &&
+          guard < 40
         ) {
           x = (Math.random() - 0.5) * 4.4;
           y = (Math.random() - 0.5) * 2.6;
-          safe++;
+          guard++;
         }
       }
 
-      const z = isFront
-        ? 0.3 + Math.random() * 0.4
-        : -1.4 - Math.random() * 2.0;
-
-      const candidate = [x, y, z];
-
-      // Non-intersection
+      // avoid intersecting other balls
       let ok = true;
-      for (const other of items) {
-        const dx = other.position[0] - x;
-        const dy = other.position[1] - y;
-        const dz = other.position[2] - z;
-        const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        if (d < (other.radius + radius) * 1.3) {
+      for (const other of arr) {
+        const dx = x - other.position[0];
+        const dy = y - other.position[1];
+        const dz = z - other.position[2];
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (dist < (other.radius + radius) * 1.2) {
           ok = false;
           break;
         }
       }
       if (!ok) continue;
 
-      // Cyberpunk HSL base color
+      // Cyberpunk color ranges
       const hueRanges = [
-        [280, 320], // magenta → hot pink
-        [250, 280], // ultraviolet purple
-        [200, 230], // cyber blue
-        [170, 195], // neon teal
+        [280, 320],
+        [250, 280],
+        [200, 230],
+        [170, 195],
       ];
       const [hMin, hMax] =
         hueRanges[Math.floor(Math.random() * hueRanges.length)];
 
-      const baseHue = hMin + Math.random() * (hMax - hMin);
-      const sat = 70 + Math.random() * 25;
-      const light = 45 + Math.random() * 25;
-
-      const floatSpeed = 0.4 + Math.random() * 0.4;
-      const shiftSpeed = 0.4 + Math.random() * 0.8;
-
-      items.push({
-        position: candidate,
+      arr.push({
+        position: [x, y, z],
         radius,
-        baseHue,
-        sat,
-        light,
-        floatSpeed,
-        shiftSpeed,
+        baseHue: hMin + Math.random() * (hMax - hMin),
+        sat: 70 + Math.random() * 25,
+        light: 45 + Math.random() * 25,
+        floatSpeed: 0.4 + Math.random() * 0.4,
+        shiftSpeed: 0.4 + Math.random() * 0.8,
       });
     }
-
-    return items;
-  }, [count]);
+    return arr;
+  }, [ballCount]);
 
   return (
     <Canvas
-      style={{
-        position: "fixed",
-        inset: 0,
-        width: "100vw",
-        height: "100vh",
-      }}
-      camera={{
-        fov: isMobile ? 55 : 50,
-        position: [0, 0, 5],
-      }}
+      style={{ position: "fixed", inset: 0, width: "100vw", height: "100vh" }}
+      camera={{ fov: isMobile ? 55 : 50, position: [0, 0, 5] }}
       dpr={isMobile ? [1, 1.3] : [1, 2]}
       onPointerMove={(e) => {
-        const x = (e.clientX / window.innerWidth) * 2 - 1;
-        const y = -((e.clientY / window.innerHeight) * 2 - 1);
-        mouse.current = [x, y];
+        mouse.current = [
+          (e.clientX / window.innerWidth) * 2 - 1,
+          -((e.clientY / window.innerHeight) * 2 - 1),
+        ];
       }}
       gl={{ antialias: !isMobile }}
     >
-      {/* Background & depth fog */}
+      {/* Colors & fog */}
       <color attach="background" args={["#050816"]} />
       <fog attach="fog" args={["#070b25", 4, 13]} />
 
-      {/* Lighting */}
+      {/* Lights */}
       <ambientLight intensity={0.6} />
       <directionalLight position={[5, 5, 5]} intensity={1.4} />
       <pointLight position={[-4, -3, 2]} intensity={0.6} />
 
-      {/* Parallax holographic grid */}
+      {/* Grid */}
       <HolographicGrid mouse={mouse} isMobile={isMobile} />
 
-      {/* Neon particle streaks */}
+      {/* Particle streaks */}
       <NeonParticles particleCount={particleCount} />
 
-      {/* === CYBERPUNK NEON NAME WITH GLOW OUTLINE === */}
+      {/* ===== CYBERPUNK 3D NAME WITH GLOW ===== */}
       <group position={[0, 0, 0]}>
-        {/* Glow outline behind text */}
         <Text
-          font="/portfolio_mki_kohsawa/fonts/Orbitron-Bold.ttf"
+          font={fontURL}
           fontSize={0.9}
           color="#00eaff"
           anchorX="center"
           anchorY="middle"
-          position={[0, 0, -0.02]} // slightly behind main text
+          position={[0, 0, -0.02]}
           outlineWidth={0.14}
           outlineColor="#00eaff"
           outlineOpacity={1}
@@ -398,9 +340,8 @@ export default function BallScene({ onBallClick }) {
           Kai Ohsawa
         </Text>
 
-        {/* Main white text */}
         <Text
-          font="/portfolio_mki_kohsawa/fonts/Orbitron-Bold.ttf"
+          font={fontURL}
           fontSize={0.9}
           color="#ffffff"
           anchorX="center"
@@ -411,7 +352,7 @@ export default function BallScene({ onBallClick }) {
         </Text>
       </group>
 
-      {/* Neon balls */}
+      {/* Interactive balls */}
       <Suspense fallback={null}>
         {balls.map((data, i) => (
           <InteractiveBall
@@ -424,7 +365,7 @@ export default function BallScene({ onBallClick }) {
         ))}
       </Suspense>
 
-      {/* Postprocessing */}
+      {/* Post processing */}
       <EffectComposer multisampling={isMobile ? 0 : 8}>
         <Bloom
           intensity={isMobile ? 0.6 : 0.9}
