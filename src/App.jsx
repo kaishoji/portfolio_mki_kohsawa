@@ -32,14 +32,14 @@ export default function App() {
       <Navbar />
 
       <main>
-        {/* HERO / HOME */}
-        <section id="home" className="section hero">
-          {/* We keep a semantic H1 for SEO/accessibility,
-              but visually the name is handled in 3D. */}
-          <h1 className="hero-name sr-only">Kai Ohsawa</h1>
-          <p className="hero-tagline">
+      {/* HERO / HOME */}
+        <section id="home" className="section hero section-visible">
+        {/* We keep a semantic H1 for SEO/accessibility,
+        but visually the name is handled in 3D. */}
+      <h1 className="hero-name sr-only">Kai Ohsawa</h1>
+        <p className="hero-tagline">
             Developer · Designer · Curious Human
-          </p>
+        </p>
         </section>
 
         {/* ABOUT */}
