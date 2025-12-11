@@ -40,10 +40,11 @@ export default function App() {
             <h1 className="overlay-title">Kai Ohsawa</h1>
 
             <p className="overlay-text">
-              I&apos;m a developer who loves blending design, code, and a bit of
-              chaos into interactive experiences. This site is my little
-              cyberpunk playground while I experiment with 3D, motion, and
-              creative coding.
+              I&apos;m a junior database administrator at a major financial
+              institution. I am currently specializing in database management and
+              optimization. I have a strong foundation in SQL. I am passionate about
+              data integrity and security, and I enjoy working on projects that
+              involve data analysis and reporting.
             </p>
 
             <div className="overlay-contact">

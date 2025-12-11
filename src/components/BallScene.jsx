@@ -1,63 +1,317 @@
 // src/components/BallScene.jsx
+import * as THREE from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Suspense, useMemo, useRef } from "react";
+import { Suspense, useMemo, useRef, useState } from "react";
 import { Text } from "@react-three/drei";
 import {
   EffectComposer,
   Bloom,
   Noise,
   Vignette,
-  Glitch,
 } from "@react-three/postprocessing";
 
-// ======================================
-// DYNAMIC FONT PATH (safe for Vite + GH Pages)
-// ======================================
 const fontURL = import.meta.env.BASE_URL + "fonts/Orbitron-Bold.ttf";
 
-/* ===========================
-   INTERACTIVE NEON BALL
-   =========================== */
-function InteractiveBall({ data, mouse, isMobile, onBallClick }) {
+/* ============================================================
+   PROCEDURAL FOG LAYER (aurora-style, no textures)
+   ============================================================ */
+function FogLayer({
+  depth = -1.6,
+  scale = [14, 10, 1],
+  baseOpacity = 0.23,
+  hueShift = 0.3,
+  warp = 0.25,
+  speed = 0.25,
+  mouse,
+  offset = 0,
+  intensity = 1,
+}) {
+  const material = useMemo(() => {
+    return new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      uniforms: {
+        uTime: { value: 0 },
+        uOpacity: { value: baseOpacity },
+        uHueShift: { value: hueShift },
+        uWarp: { value: warp },
+        uIntensity: { value: intensity },
+        uMouse: { value: new THREE.Vector2(0, 0) },
+        uSpeed: { value: speed },
+        uOffset: { value: offset },
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+        }
+      `,
+      fragmentShader: `
+        varying vec2 vUv;
+        uniform float uTime;
+        uniform float uOpacity;
+        uniform float uHueShift;
+        uniform float uWarp;
+        uniform float uIntensity;
+        uniform vec2 uMouse;
+        uniform float uSpeed;
+        uniform float uOffset;
+
+        float hash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+        }
+
+        float noise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+
+          float a = hash(i);
+          float b = hash(i + vec2(1.0, 0.0));
+          float c = hash(i + vec2(0.0, 1.0));
+          float d = hash(i + vec2(1.0, 1.0));
+
+          vec2 u = f * f * (3.0 - 2.0 * f);
+
+          return mix(a, b, u.x) +
+                 (c - a) * u.y * (1.0 - u.x) +
+                 (d - b) * u.x * u.y;
+        }
+
+        float fbm(vec2 p) {
+          float f = 0.0;
+          f += 0.5000 * noise(p);
+          f += 0.2500 * noise(p * 2.0);
+          f += 0.1250 * noise(p * 4.0);
+          f += 0.0625 * noise(p * 8.0);
+          return f;
+        }
+
+        vec3 hsl2rgb(vec3 hsl) {
+          vec3 rgb = clamp(abs(mod(hsl.x * 6. + vec3(0,4,2), 6.) - 3.) - 1., 0., 1.);
+          return hsl.z + hsl.y * (rgb - 0.5) * (1. - abs(2.*hsl.z - 1.));
+        }
+
+        void main() {
+          float t = uTime * uSpeed + uOffset;
+
+          vec2 p = vUv * 4.0;
+
+          p += uMouse * uWarp;
+          p += vec2(t * 0.05, t * 0.03);
+
+          float f = fbm(p + fbm(p * 0.5 + t * 0.2));
+
+          float alpha = f * (uOpacity * uIntensity);
+
+          float hue = mod(uHueShift * 0.5 + f * 0.4 + t * 0.05, 1.0);
+          vec3 col = hsl2rgb(vec3(hue, 0.8, 0.6));
+
+          gl_FragColor = vec4(col, alpha);
+        }
+      `,
+    });
+  }, [baseOpacity, hueShift, warp, speed, offset, intensity]);
+
+  useFrame(({ clock }) => {
+    const t = clock.getElapsedTime();
+    material.uniforms.uTime.value = t;
+    material.uniforms.uIntensity.value = intensity;
+
+    const [mx, my] = mouse.current;
+    material.uniforms.uMouse.value.set(mx, my);
+  });
+
+  return (
+    <mesh position={[0, 0, depth]} scale={scale}>
+      <planeGeometry args={[1, 1]} />
+      <primitive object={material} attach="material" />
+    </mesh>
+  );
+}
+
+/* ============================================================
+   LIGHTNING STREAKS (additive flicker in the fog)
+   ============================================================ */
+function LightningStreaks({ count = 10 }) {
+  const groupRef = useRef();
+
+  const streaks = useMemo(() => {
+    const arr = [];
+    for (let i = 0; i < count; i++) {
+      arr.push({
+        x: (Math.random() - 0.5) * 5,
+        y: (Math.random() - 0.5) * 3,
+        z: -1.4 - Math.random() * 0.7,
+        phase: Math.random() * Math.PI * 2,
+        length: 0.8 + Math.random() * 1.2,
+        tilt: (Math.random() - 0.5) * 0.4,
+      });
+    }
+    return arr;
+  }, [count]);
+
+  useFrame(({ clock }) => {
+    const t = clock.getElapsedTime() * 2.5;
+    if (!groupRef.current) return;
+
+    groupRef.current.children.forEach((mesh, i) => {
+      const data = streaks[i];
+      const flicker =
+        Math.max(0, Math.sin(t + data.phase) * 1.3 - 0.3) +
+        Math.random() * 0.1;
+      mesh.material.opacity = flicker * 0.9;
+      mesh.scale.y = data.length * (0.4 + flicker * 0.6);
+    });
+  });
+
+  return (
+    <group ref={groupRef}>
+      {streaks.map((s, i) => (
+        <mesh key={i} position={[s.x, s.y, s.z]} rotation={[0, 0, s.tilt]}>
+          <planeGeometry args={[0.06, 1]} />
+          <meshBasicMaterial
+            color="#9afcff"
+            transparent
+            opacity={0}
+            blending={THREE.AdditiveBlending}
+          />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+/* ============================================================
+   NEON NAME (your cyberpunk title)
+   ============================================================ */
+function NeonName({ mouse }) {
+  const glowRef = useRef();
+  const mainRef = useRef();
+  const groupRef = useRef();
+
+  useFrame(({ clock }) => {
+    if (!glowRef.current || !mainRef.current || !groupRef.current) return;
+
+    const t = clock.getElapsedTime();
+    const [mx, my] = mouse.current;
+
+    const cursorX = mx * 1.5;
+    const cursorY = my * 1.0;
+    const dist = Math.sqrt(cursorX * cursorX + cursorY * cursorY);
+
+    const maxInfluence = 1.4;
+    const influence = Math.max(0, 1 - dist / maxInfluence);
+
+    const breathe = Math.sin(t * 0.8) * 0.5 + 0.5;
+
+    const glowWidth = 0.06 + breathe * 0.02 + influence * 0.06;
+    glowRef.current.outlineWidth = glowWidth;
+    glowRef.current.outlineOpacity =
+      0.6 + breathe * 0.2 + influence * 0.35;
+
+    const hue = (t * 8) % 360;
+    const glowColor = `hsl(${hue}, 85%, 60%)`;
+    const mainColor = `hsl(${hue}, 85%, 92%)`;
+
+    glowRef.current.color = glowColor;
+    mainRef.current.color = mainColor;
+
+    const tiltStrength = 0.35;
+    groupRef.current.rotation.x = my * tiltStrength;
+    groupRef.current.rotation.y = -mx * tiltStrength;
+
+    groupRef.current.position.y = Math.sin(t * 0.7) * 0.03;
+  });
+
+  return (
+    <group ref={groupRef} position={[0, 0, 0]}>
+      <Text
+        ref={glowRef}
+        font={fontURL}
+        fontSize={0.9}
+        anchorX="center"
+        anchorY="middle"
+        outlineWidth={0.06}
+        outlineBlur={0.23}
+        outlineOpacity={0.6}
+        color="#00eaff"
+        position={[0, 0, -0.02]}
+      >
+        Kai Ohsawa
+      </Text>
+      <Text
+        ref={mainRef}
+        font={fontURL}
+        fontSize={0.9}
+        anchorX="center"
+        anchorY="middle"
+        material-toneMapped={false}
+        color="#ffffff"
+      >
+        Kai Ohsawa
+      </Text>
+    </group>
+  );
+}
+
+/* ============================================================
+   INTERACTIVE BALLS (with vortex field)
+   ============================================================ */
+function InteractiveBall({ data, mouse, isMobile, onBallClick, vortexStrength }) {
   const ref = useRef();
   const velocity = useRef([0, 0, 0]);
-  const { position, radius, baseHue, sat, light, floatSpeed, shiftSpeed } = data;
+  const { position, baseHue, sat, light, floatSpeed, shiftSpeed, radius } = data;
 
-  useFrame((state) => {
+  useFrame(({ clock }) => {
     if (!ref.current) return;
+    const t = clock.getElapsedTime();
 
-    const t = state.clock.getElapsedTime();
-
-    // Idle bobbing
-    const bobFactor = isMobile ? 0.5 : 0.6;
-    const bobX = Math.cos(t * floatSpeed * bobFactor) * 0.03;
+    const bobX = Math.cos(t * floatSpeed * (isMobile ? 0.5 : 0.6)) * 0.03;
     const bobY = Math.sin(t * floatSpeed) * 0.05;
-
     const baseX = position[0] + bobX;
     const baseY = position[1] + bobY;
     const baseZ = position[2];
 
-    // Mouse force field
     const [mx, my] = mouse.current;
-    const mdx = baseX - mx * 2.0;
-    const mdy = baseY - my * 1.5;
-    const mdz = baseZ - 0.0;
+    const mouseX = mx * 2.0;
+    const mouseY = my * 1.5;
 
-    const dist = Math.sqrt(mdx * mdx + mdy * mdy + mdz * mdz);
+    const dx = baseX - mouseX;
+    const dy = baseY - mouseY;
+    const dz = baseZ - 0;
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
     const influenceRadius = isMobile ? 1.4 : 1.8;
 
-    if (dist < influenceRadius && dist > 0.0001) {
+    // Mouse push-away
+    if (dist < influenceRadius && dist > 0.001) {
       const strength = (influenceRadius - dist) * (isMobile ? 0.045 : 0.06);
-      velocity.current[0] += (mdx / dist) * strength;
-      velocity.current[1] += (mdy / dist) * strength;
-      velocity.current[2] += (mdz / dist) * strength;
+      velocity.current[0] += (dx / dist) * strength;
+      velocity.current[1] += (dy / dist) * strength;
+      velocity.current[2] += (dz / dist) * strength;
     }
 
-    // damping
-    const damping = isMobile ? 0.9 : 0.88;
-    velocity.current[0] *= damping;
-    velocity.current[1] *= damping;
-    velocity.current[2] *= damping;
+    // Vortex towards center with swirl (only in X/Y)
+    const cx = 0;
+    const cy = 0;
+    const vx = cx - baseX;
+    const vy = cy - baseY;
+    const vLen = Math.sqrt(vx * vx + vy * vy) + 0.0001;
+
+    const radialX = vx / vLen;
+    const radialY = vy / vLen;
+    const tangentialX = -radialY;
+    const tangentialY = radialX;
+
+    const vortex = vortexStrength * 0.02;
+    velocity.current[0] += radialX * vortex + tangentialX * vortex * 0.7;
+    velocity.current[1] += radialY * vortex + tangentialY * vortex * 0.7;
+
+    // Damping
+    velocity.current[0] *= 0.88;
+    velocity.current[1] *= 0.88;
+    velocity.current[2] *= 0.88;
 
     ref.current.position.set(
       baseX + velocity.current[0],
@@ -65,44 +319,39 @@ function InteractiveBall({ data, mouse, isMobile, onBallClick }) {
       baseZ + velocity.current[2]
     );
 
-    // spin
     ref.current.rotation.y += 0.01;
     ref.current.rotation.x += 0.006;
 
-    // color shift
+    const hueDeg = (baseHue + t * shiftSpeed * 30) % 360;
+    const h = hueDeg / 360;
+    const s = sat / 100;
+    const l = light / 100;
+
     const mat = ref.current.material;
-    if (mat) {
-      const hueDeg = (baseHue + t * shiftSpeed * 30) % 360;
-      mat.color.setHSL(hueDeg / 360, sat / 100, light / 100);
-      mat.emissive.setHSL(hueDeg / 360, sat / 100, Math.min(light / 100 + 0.2, 1));
+    if (mat && mat.color) {
+      mat.color.setHSL(h, s, l);
+      mat.emissive?.setHSL?.(h, s, Math.min(l + 0.2, 1));
     }
   });
 
   return (
     <mesh ref={ref} onClick={onBallClick}>
       <sphereGeometry args={[radius, 32, 32]} />
-      <meshStandardMaterial
-        color="white"
-        metalness={0.4}
-        roughness={0.25}
-        emissive="#000"
-        emissiveIntensity={0.05}
-      />
+      <meshStandardMaterial roughness={0.25} metalness={0.4} emissive="#000" />
     </mesh>
   );
 }
 
-/* ===========================
-   HOLOGRAPHIC GRID
-   =========================== */
+/* ============================================================
+   HOLOGRAPHIC GRID (bends toward mouse)
+   ============================================================ */
 function HolographicGrid({ mouse, isMobile }) {
   const ref = useRef();
   const basePositions = useRef(null);
 
-  useFrame((state) => {
+  useFrame(({ clock }) => {
     if (!ref.current) return;
-
-    const t = state.clock.getElapsedTime();
+    const t = clock.getElapsedTime();
     const geom = ref.current.geometry;
     const arr = geom.attributes.position.array;
 
@@ -128,17 +377,14 @@ function HolographicGrid({ mouse, isMobile }) {
       const dist = Math.sqrt(dx * dx + dy * dy);
       const influence = Math.max(0, 1 - dist / bendRadius);
 
-      const waveAmp = isMobile ? 0.04 : 0.06;
-      const wave = Math.sin(t * 1.3 + (x0 + y0) * 2.0) * waveAmp * influence;
+      const wave = Math.sin(t * 1.3 + (x0 + y0) * 2.0) * 0.06 * influence;
 
       arr[i] = x0;
       arr[i + 1] = y0;
       arr[i + 2] = z0 + influence * maxOffset + wave;
     }
-
     geom.attributes.position.needsUpdate = true;
 
-    // slight parallax tilt
     ref.current.rotation.x = -0.35 + my * 0.08;
     ref.current.rotation.y = mx * 0.12;
   });
@@ -153,27 +399,29 @@ function HolographicGrid({ mouse, isMobile }) {
   );
 }
 
-/* ===========================
-   PARTICLE STREAKS
-   =========================== */
+/* ============================================================
+   PARTICLE STREAKS (nebula dust trails)
+   ============================================================ */
 function NeonParticles({ particleCount }) {
   const ref = useRef();
 
   const { positions, speeds } = useMemo(() => {
-    const positions = new Float32Array(particleCount * 3);
-    const speeds = new Float32Array(particleCount);
+    const p = new Float32Array(particleCount * 3);
+    const s = new Float32Array(particleCount);
     for (let i = 0; i < particleCount; i++) {
       const j = i * 3;
-      positions[j] = (Math.random() - 0.5) * 8;
-      positions[j + 1] = (Math.random() - 0.5) * 5;
-      positions[j + 2] = -3 - Math.random() * 5;
-      speeds[i] = 0.6 + Math.random() * 1.4;
+      p[j] = (Math.random() - 0.5) * 8;
+      p[j + 1] = (Math.random() - 0.5) * 5;
+      p[j + 2] = -3 - Math.random() * 5;
+      s[i] = 0.6 + Math.random() * 1.4;
     }
-    return { positions, speeds };
+    return { positions: p, speeds: s };
   }, [particleCount]);
 
   useFrame((_, delta) => {
     const pts = ref.current;
+    if (!pts) return;
+
     const arr = pts.geometry.attributes.position.array;
     const v = pts.userData.speeds;
 
@@ -189,63 +437,55 @@ function NeonParticles({ particleCount }) {
         v[i] = 0.6 + Math.random() * 1.4;
       }
     }
-
     pts.geometry.attributes.position.needsUpdate = true;
   });
 
   return (
-    <points
-      ref={ref}
-      onUpdate={(p) => (p.userData.speeds = speeds)}
-    >
+    <points ref={ref} onUpdate={(p) => (p.userData.speeds = speeds)}>
       <bufferGeometry>
         <bufferAttribute
           attach="attributes-position"
-          array={positions}
-          count={positions.length / 3}
           itemSize={3}
+          count={positions.length / 3}
+          array={positions}
         />
       </bufferGeometry>
-      <pointsMaterial
-        size={0.05}
-        sizeAttenuation
-        color="#7cfbff"
-        transparent
-        opacity={0.6}
-      />
+      <pointsMaterial size={0.05} color="#7cfbff" transparent opacity={0.6} />
     </points>
   );
 }
 
-/* ===========================
-   MAIN SCENE
-   =========================== */
+/* ============================================================
+   MAIN SCENE + FOG PANEL
+   ============================================================ */
 export default function BallScene({ onBallClick }) {
   const mouse = useRef([0, 0]);
-
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+
+  const [fogIntensity, setFogIntensity] = useState(1);
+  const [fogSpeed, setFogSpeed] = useState(1);
+  const [vortexStrength, setVortexStrength] = useState(1);
 
   const ballCount = isMobile ? 24 : 40;
   const particleCount = isMobile ? 90 : 180;
 
-  // Generate ball positions & colors
   const balls = useMemo(() => {
-    const arr = [];
+    const list = [];
     const maxAttempts = 9000;
-    let attempts = 0;
-
     const textW = 2.4;
     const textH = 0.9;
 
-    while (arr.length < ballCount && attempts < maxAttempts) {
+    let attempts = 0;
+    while (list.length < ballCount && attempts < maxAttempts) {
       attempts++;
+
       const radius = 0.22 + Math.random() * 0.32;
       let x = (Math.random() - 0.5) * 4.4;
       let y = (Math.random() - 0.5) * 2.6;
-      let z = Math.random() < 0.18 ? 0.4 : -1.4 - Math.random() * 2.2;
+      const front = Math.random() < 0.18;
+      let z = front ? 0.4 : -1.4 - Math.random() * 2.2;
 
-      // avoid overlapping name area (front orbs only)
-      if (z > 0) {
+      if (front) {
         let guard = 0;
         while (
           Math.abs(x) < textW / 2 + radius &&
@@ -258,31 +498,28 @@ export default function BallScene({ onBallClick }) {
         }
       }
 
-      // avoid intersecting other balls
       let ok = true;
-      for (const other of arr) {
-        const dx = x - other.position[0];
-        const dy = y - other.position[1];
-        const dz = z - other.position[2];
+      for (const b of list) {
+        const dx = b.position[0] - x;
+        const dy = b.position[1] - y;
+        const dz = b.position[2] - z;
         const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        if (dist < (other.radius + radius) * 1.2) {
+        if (dist < (b.radius + radius) * 1.2) {
           ok = false;
           break;
         }
       }
       if (!ok) continue;
 
-      // Cyberpunk color ranges
-      const hueRanges = [
+      const ranges = [
         [280, 320],
         [250, 280],
         [200, 230],
         [170, 195],
       ];
-      const [hMin, hMax] =
-        hueRanges[Math.floor(Math.random() * hueRanges.length)];
+      const [hMin, hMax] = ranges[Math.floor(Math.random() * ranges.length)];
 
-      arr.push({
+      list.push({
         position: [x, y, z],
         radius,
         baseHue: hMin + Math.random() * (hMax - hMin),
@@ -292,97 +529,150 @@ export default function BallScene({ onBallClick }) {
         shiftSpeed: 0.4 + Math.random() * 0.8,
       });
     }
-    return arr;
+
+    return list;
   }, [ballCount]);
 
   return (
-    <Canvas
-      style={{ position: "fixed", inset: 0, width: "100vw", height: "100vh" }}
-      camera={{ fov: isMobile ? 55 : 50, position: [0, 0, 5] }}
-      dpr={isMobile ? [1, 1.3] : [1, 2]}
-      onPointerMove={(e) => {
-        mouse.current = [
-          (e.clientX / window.innerWidth) * 2 - 1,
-          -((e.clientY / window.innerHeight) * 2 - 1),
-        ];
-      }}
-      gl={{ antialias: !isMobile }}
-    >
-      {/* Colors & fog */}
-      <color attach="background" args={["#050816"]} />
-      <fog attach="fog" args={["#070b25", 4, 13]} />
+    <div style={{ position: "fixed", inset: 0 }}>
+      <Canvas
+        style={{ width: "100%", height: "100%" }}
+        camera={{ fov: isMobile ? 55 : 50, position: [0, 0, 5] }}
+        dpr={isMobile ? [1, 1.3] : [1, 2]}
+        onPointerMove={(e) => {
+          mouse.current = [
+            (e.clientX / window.innerWidth) * 2 - 1,
+            -((e.clientY / window.innerHeight) * 2 - 1),
+          ];
+        }}
+      >
+        <color attach="background" args={["#050816"]} />
+        <fog attach="fog" args={["#070b25", 4, 13]} />
 
-      {/* Lights */}
-      <ambientLight intensity={0.6} />
-      <directionalLight position={[5, 5, 5]} intensity={1.4} />
-      <pointLight position={[-4, -3, 2]} intensity={0.6} />
+        <ambientLight intensity={0.6} />
+        <directionalLight position={[5, 5, 5]} intensity={1.4} />
+        <pointLight position={[-4, -3, 2]} intensity={0.6} />
 
-      {/* Grid */}
-      <HolographicGrid mouse={mouse} isMobile={isMobile} />
-
-      {/* Particle streaks */}
-      <NeonParticles particleCount={particleCount} />
-
-      {/* ===== CYBERPUNK 3D NAME WITH GLOW ===== */}
-      <group position={[0, 0, 0]}>
-        <Text
-          font={fontURL}
-          fontSize={0.9}
-          color="#00eaff"
-          anchorX="center"
-          anchorY="middle"
-          position={[0, 0, -0.02]}
-          outlineWidth={0.14}
-          outlineColor="#00eaff"
-          outlineOpacity={1}
-          outlineBlur={0.6}
-        >
-          Kai Ohsawa
-        </Text>
-
-        <Text
-          font={fontURL}
-          fontSize={0.9}
-          color="#ffffff"
-          anchorX="center"
-          anchorY="middle"
-          material-toneMapped={false}
-        >
-          Kai Ohsawa
-        </Text>
-      </group>
-
-      {/* Interactive balls */}
-      <Suspense fallback={null}>
-        {balls.map((data, i) => (
-          <InteractiveBall
-            key={i}
-            data={data}
-            mouse={mouse}
-            isMobile={isMobile}
-            onBallClick={onBallClick}
-          />
-        ))}
-      </Suspense>
-
-      {/* Post processing */}
-      <EffectComposer multisampling={isMobile ? 0 : 8}>
-        <Bloom
-          intensity={isMobile ? 0.6 : 0.9}
-          luminanceThreshold={0.18}
-          luminanceSmoothing={0.9}
-          radius={0.7}
+        {/* 🌫 Procedural fog layers */}
+        <FogLayer
+          depth={-2.0}
+          scale={[15, 10, 1]}
+          baseOpacity={0.18}
+          hueShift={0.15}
+          warp={0.08}
+          speed={0.2 * fogSpeed}
+          mouse={mouse}
+          offset={0}
+          intensity={fogIntensity}
         />
-        <Noise opacity={isMobile ? 0.03 : 0.04} />
-        <Vignette eskil={false} offset={0.25} darkness={0.6} />
-        {!isMobile && (
-          <Glitch
-            delay={[2, 5]}
-            duration={[0.4, 0.8]}
-            strength={[0.1, 0.3]}
+        <FogLayer
+          depth={-1.6}
+          scale={[14, 10, 1]}
+          baseOpacity={0.24}
+          hueShift={0.25}
+          warp={0.18}
+          speed={0.28 * fogSpeed}
+          mouse={mouse}
+          offset={7.3}
+          intensity={fogIntensity}
+        />
+        <FogLayer
+          depth={-1.2}
+          scale={[16, 12, 1]}
+          baseOpacity={0.32}
+          hueShift={0.35}
+          warp={0.3}
+          speed={0.35 * fogSpeed}
+          mouse={mouse}
+          offset={13.1}
+          intensity={fogIntensity}
+        />
+
+        <LightningStreaks count={10} />
+        <HolographicGrid mouse={mouse} isMobile={isMobile} />
+        <NeonParticles particleCount={particleCount} />
+        <NeonName mouse={mouse} />
+
+        <Suspense fallback={null}>
+          {balls.map((data, i) => (
+            <InteractiveBall
+              key={i}
+              data={data}
+              mouse={mouse}
+              isMobile={isMobile}
+              onBallClick={onBallClick}
+              vortexStrength={vortexStrength}
+            />
+          ))}
+        </Suspense>
+
+        <EffectComposer multisampling={isMobile ? 0 : 4}>
+          <Bloom intensity={0.9} luminanceThreshold={0.18} radius={0.7} />
+          <Noise opacity={0.04} />
+          <Vignette eskil={false} offset={0.25} darkness={0.6} />
+        </EffectComposer>
+      </Canvas>
+
+      {/* 🎛 Fog / Vortex Control Panel (always on) */}
+      <div
+        style={{
+          position: "absolute",
+          right: 16,
+          bottom: 16,
+          padding: "10px 12px",
+          borderRadius: 12,
+          background: "rgba(5, 8, 22, 0.92)",
+          border: "1px solid rgba(120, 220, 255, 0.4)",
+          fontFamily: "system-ui, sans-serif",
+          fontSize: 12,
+          color: "#e5f7ff",
+          backdropFilter: "blur(10px)",
+          maxWidth: 240,
+        }}
+      >
+        <div style={{ fontWeight: 600, marginBottom: 6 }}>
+          Fog & Vortex Controls
+        </div>
+
+        <label style={{ display: "block", marginTop: 4 }}>
+          Fog Intensity
+          <input
+            type="range"
+            min="0"
+            max="1.8"
+            step="0.05"
+            value={fogIntensity}
+            onChange={(e) => setFogIntensity(parseFloat(e.target.value))}
+            style={{ width: "100%" }}
           />
-        )}
-      </EffectComposer>
-    </Canvas>
+        </label>
+
+        <label style={{ display: "block", marginTop: 4 }}>
+          Fog Speed
+          <input
+            type="range"
+            min="0"
+            max="2"
+            step="0.05"
+            value={fogSpeed}
+            onChange={(e) => setFogSpeed(parseFloat(e.target.value))}
+            style={{ width: "100%" }}
+          />
+        </label>
+
+        <label style={{ display: "block", marginTop: 4 }}>
+          Vortex Strength
+          <input
+            type="range"
+            min="0"
+            max="3"
+            step="0.1"
+            value={vortexStrength}
+            onChange={(e) => setVortexStrength(parseFloat(e.target.value))}
+            style={{ width: "100%" }}
+          />
+        </label>
+      </div>
+    </div>
   );
 }
