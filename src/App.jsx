@@ -19,7 +19,14 @@ export default function App() {
       {/* 3D scene */}
       <BallScene onBallClick={handleBallClick} />
 
-      {/* Overlay modal (HTML on top of canvas) */}
+      {/* Hint at the bottom (hidden when modal is open) */}
+      {!showModal && (
+        <div className="orb-hint">
+          Press any orb to learn more
+        </div>
+      )}
+
+      {/* Overlay modal (HTML over canvas) */}
       {showModal && (
         <div className="overlay-backdrop" onClick={closeModal}>
           <div
@@ -43,27 +50,27 @@ export default function App() {
               <p>
                 Email:{" "}
                 <a href="mailto:your.email@example.com">
-                  your.email@example.com
+                  kaishoji.oh@gmail.com
                 </a>
               </p>
               <p>
                 GitHub:{" "}
                 <a
-                  href="https://github.com/your-username"
+                  href="https://github.com/kaishoji"
                   target="_blank"
                   rel="noreferrer"
                 >
-                  github.com/your-username
+                  https://github.com/kaishoji
                 </a>
               </p>
               <p>
                 LinkedIn:{" "}
                 <a
-                  href="https://www.linkedin.com/in/your-handle"
+                  href="https://www.linkedin.com/in/kaishoji/"
                   target="_blank"
                   rel="noreferrer"
                 >
-                  linkedin.com/in/your-handle
+                  https://www.linkedin.com/in/kaishoji/
                 </a>
               </p>
             </div>
