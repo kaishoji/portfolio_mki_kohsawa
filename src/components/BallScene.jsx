@@ -15,18 +15,15 @@ function InteractiveBall({ data, mouse }) {
 
     const t = state.clock.elapsedTime * floatSpeed;
 
-    // Gentle base bobbing
     const baseX = position[0] + Math.cos(t * 0.6) * 0.06;
     const baseY = position[1] + Math.sin(t) * 0.1;
     const baseZ = position[2];
 
-    // Mouse position in [-1, 1]
     const [mx, my] = mouse.current;
     const mouseWorldX = mx * 2.0;
     const mouseWorldY = my * 1.2;
-    const mouseWorldZ = -0.5; // near the 3D text plane
+    const mouseWorldZ = -0.3;
 
-    // Push-away force when cursor is near
     const posNow = [baseX, baseY, baseZ];
     const dx = posNow[0] - mouseWorldX;
     const dy = posNow[1] - mouseWorldY;
@@ -44,29 +41,23 @@ function InteractiveBall({ data, mouse }) {
       velocity.current[2] += nz * strength;
     }
 
-    // Damping
     velocity.current[0] *= 0.9;
     velocity.current[1] *= 0.9;
     velocity.current[2] *= 0.9;
 
-    // Subtle parallax follow
-    const parallaxStrength = 0.3;
+    const parallaxStrength = 0.25;
     const depthFactor = 1 + Math.abs(baseZ);
-    const parallaxX = mx * parallaxStrength * 0.15 * depthFactor;
-    const parallaxY = my * parallaxStrength * 0.15 * depthFactor;
 
-    const finalX = baseX + parallaxX + velocity.current[0];
-    const finalY = baseY + parallaxY + velocity.current[1];
+    const finalX = baseX + mx * parallaxStrength * depthFactor + velocity.current[0];
+    const finalY = baseY + my * parallaxStrength * depthFactor + velocity.current[1];
     const finalZ = baseZ + velocity.current[2];
 
     ref.current.position.set(finalX, finalY, finalZ);
 
-    // Slow spin
     ref.current.rotation.y += 0.01;
     ref.current.rotation.x += 0.006;
 
-    // Hover scale (manual interpolation to avoid Vector3 fuss)
-    const targetScale = hovered ? 1.4 : 1;
+    const targetScale = hovered ? 1.3 : 1;
     const s = ref.current.scale;
     s.x += (targetScale - s.x) * 0.12;
     s.y += (targetScale - s.y) * 0.12;
@@ -82,89 +73,59 @@ function InteractiveBall({ data, mouse }) {
       <sphereGeometry args={[radius, 32, 32]} />
       <meshStandardMaterial
         color={color}
+        emissive={color}
+        emissiveIntensity={hovered ? 1.4 : 0.25}
         metalness={0.4}
         roughness={0.3}
-        emissive={color}
-        emissiveIntensity={hovered ? 1.6 : 0.35}
       />
     </mesh>
   );
 }
 
 export default function BallScene() {
-  const count = 50; // tuned density
+  const count = 50;
   const mouse = useRef([0, 0]);
 
   const balls = useMemo(() => {
-    const items = [];
-    const maxTries = 7000;
-    let tries = 0;
+    const arr = [];
+    const holeRadius = 1.2; // keep clear around the 3D text
 
-    const frontProbability = 0.2;  // fewer balls in front
-    const holeRadius = 1.1;        // clear zone around text in front
-
-    while (items.length < count && tries < maxTries) {
-      tries++;
-
-      const radius = 0.22 + Math.random() * 0.4;
-
-      const isFront = Math.random() < frontProbability;
+    while (arr.length < count) {
+      const radius = 0.25 + Math.random() * 0.4;
+      const isFront = Math.random() < 0.2;
 
       let x = (Math.random() - 0.5) * 4.2;
       let y = (Math.random() - 0.5) * 2.8;
 
-      // In front layer, avoid the center “no-fly zone” so text stays readable
+      // Avoid the name area
       if (isFront) {
         let r2 = x * x + y * y;
-        let safeguard = 0;
-        while (r2 < holeRadius * holeRadius && safeguard < 20) {
+        let safety = 0;
+        while (r2 < holeRadius * holeRadius && safety < 20) {
           x = (Math.random() - 0.5) * 4.2;
           y = (Math.random() - 0.5) * 2.8;
           r2 = x * x + y * y;
-          safeguard++;
+          safety++;
         }
       }
 
       const z = isFront
-        ? 0.4 + Math.random() * 0.7   // front layer
-        : -1.4 - Math.random() * 2.4; // back layer
+        ? 0.3 + Math.random() * 0.6
+        : -1.4 - Math.random() * 2.4;
 
-      const candidatePos = [x, y, z];
-
-      // prevent overlaps
-      let ok = true;
-      for (let i = 0; i < items.length; i++) {
-        const other = items[i];
-        const dx = other.position[0] - candidatePos[0];
-        const dy = other.position[1] - candidatePos[1];
-        const dz = other.position[2] - candidatePos[2];
-        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        const minDist = (other.radius + radius) * 1.1;
-        if (dist < minDist) {
-          ok = false;
-          break;
-        }
-      }
-      if (!ok) continue;
-
-      // Grey shade
       const shade = 0.3 + Math.random() * 0.6;
-      const hex = Math.round(shade * 255)
-        .toString(16)
-        .padStart(2, "0");
+      const hex = Math.round(shade * 255).toString(16).padStart(2, "0");
       const color = `#${hex}${hex}${hex}`;
 
-      const floatSpeed = 0.4 + Math.random() * 0.5;
-
-      items.push({
-        position: candidatePos,
-        color,
-        floatSpeed,
+      arr.push({
+        position: [x, y, z],
         radius,
+        color,
+        floatSpeed: 0.4 + Math.random() * 0.5,
       });
     }
 
-    return items;
+    return arr;
   }, [count]);
 
   return (
@@ -175,9 +136,8 @@ export default function BallScene() {
         left: 0,
         width: "100vw",
         height: "100vh",
-        zIndex: -1, // always behind DOM content
       }}
-      camera={{ position: [0, 0, 5], fov: 50 }}
+      camera={{ fov: 50, position: [0, 0, 5] }}
       onPointerMove={(e) => {
         const x = (e.clientX / window.innerWidth) * 2 - 1;
         const y = -((e.clientY / window.innerHeight) * 2 - 1);
@@ -185,20 +145,17 @@ export default function BallScene() {
       }}
     >
       <color attach="background" args={["#050816"]} />
-      <fog attach="fog" args={["#050816", 4, 13]} />
 
       <ambientLight intensity={0.6} />
       <directionalLight position={[5, 5, 5]} intensity={1.4} />
-      <pointLight position={[-4, -3, 2]} intensity={0.7} />
 
-      {/* 3D name in the scene */}
+      {/* 3D Name */}
       <Text
-        position={[0, 0.2, -0.3]}
+        position={[0, 0, 0]}
         fontSize={0.9}
         color="#ffffff"
         anchorX="center"
         anchorY="middle"
-        letterSpacing={0.05}
       >
         Kai Ohsawa
       </Text>
