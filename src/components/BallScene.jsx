@@ -380,16 +380,36 @@ export default function BallScene({ onBallClick }) {
       {/* Neon particle streaks */}
       <NeonParticles particleCount={particleCount} />
 
-      {/* 3D Name */}
-      <Text
-        position={[0, 0, 0]}
-        fontSize={0.9}
-        color="#ffffff"
-        anchorX="center"
-        anchorY="middle"
-      >
-        Kai Ohsawa
-      </Text>
+      {/* === CYBERPUNK NEON NAME WITH GLOW OUTLINE === */}
+      <group position={[0, 0, 0]}>
+        {/* Glow outline behind text */}
+        <Text
+          font="/fonts/Orbitron-Bold.ttf"
+          fontSize={0.9}
+          color="#00eaff"
+          anchorX="center"
+          anchorY="middle"
+          position={[0, 0, -0.02]} // slightly behind main text
+          outlineWidth={0.14}
+          outlineColor="#00eaff"
+          outlineOpacity={1}
+          outlineBlur={0.6}
+        >
+          Kai Ohsawa
+        </Text>
+
+        {/* Main white text */}
+        <Text
+          font="/fonts/Orbitron-Bold.ttf"
+          fontSize={0.9}
+          color="#ffffff"
+          anchorX="center"
+          anchorY="middle"
+          material-toneMapped={false}
+        >
+          Kai Ohsawa
+        </Text>
+      </group>
 
       {/* Neon balls */}
       <Suspense fallback={null}>
