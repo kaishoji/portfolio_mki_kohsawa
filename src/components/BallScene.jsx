@@ -145,11 +145,11 @@ export default function BallScene() {
       }
       if (!ok) continue;
 
-      // Different hues of green using HSL
-      const hue = 110 + Math.random() * 40;    // 110–150: green spectrum
-      const sat = 55 + Math.random() * 30;     // 55–85% saturation
-      const light = 35 + Math.random() * 30;   // 35–65% lightness
-      const color = `hsl(${hue}, ${sat}%, ${light}%)`;
+      // Procedural forest green using HSL
+    const hue = 110 + Math.random() * 20;   // 110–130: deep forest greens
+    const sat = 35 + Math.random() * 25;    // less saturated → more earthy
+    const light = 15 + Math.random() * 25;  // dark → mid forest tones
+    const color = `hsl(${hue}, ${sat}%, ${light}%)`;
 
       const floatSpeed = 0.4 + Math.random() * 0.4;
 
