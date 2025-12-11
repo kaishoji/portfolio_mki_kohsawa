@@ -2,48 +2,49 @@
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Suspense, useMemo, useRef } from "react";
 import { Text } from "@react-three/drei";
+import {
+  EffectComposer,
+  Bloom,
+  Noise,
+  Vignette,
+  Glitch,
+} from "@react-three/postprocessing";
 
 function InteractiveBall({ data, mouse }) {
   const ref = useRef();
   const velocity = useRef([0, 0, 0]);
-
-  const { position, color, floatSpeed, radius } = data;
+  const { position, radius, baseHue, sat, light, floatSpeed, shiftSpeed } = data;
 
   useFrame((state) => {
     if (!ref.current) return;
 
-    const t = state.clock.getElapsedTime() * floatSpeed;
+    const t = state.clock.getElapsedTime();
 
-    // Gentle bobbing so they feel alive but not chaotic
-    const bobX = Math.cos(t * 0.6) * 0.03;
-    const bobY = Math.sin(t) * 0.05;
+    // Gentle idle bobbing
+    const bobX = Math.cos(t * floatSpeed * 0.6) * 0.03;
+    const bobY = Math.sin(t * floatSpeed) * 0.05;
     const baseX = position[0] + bobX;
     const baseY = position[1] + bobY;
     const baseZ = position[2];
 
-    // Mouse in normalized device coordinates [-1, 1]
+    // Mouse mapping (NDC -> approximate world plane near text)
     const [mx, my] = mouse.current;
-    const mouseWorldX = mx * 2.0;   // horizontal mapping
-    const mouseWorldY = my * 1.5;   // vertical mapping
-    const mouseWorldZ = 0.0;        // near text plane
+    const mouseWorldX = mx * 2.0;
+    const mouseWorldY = my * 1.5;
+    const mouseWorldZ = 0.0;
 
-    // Vector from mouse to ball
+    // Push-away force when cursor is near
     const dx = baseX - mouseWorldX;
     const dy = baseY - mouseWorldY;
     const dz = baseZ - mouseWorldZ;
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-    // Push-away effect when cursor is close
     const influenceRadius = 1.2;
     if (dist < influenceRadius && dist > 0.0001) {
-      const strength = (influenceRadius - dist) * 0.03; // tweak for more/less push
-      const nx = dx / dist;
-      const ny = dy / dist;
-      const nz = dz / dist;
-
-      velocity.current[0] += nx * strength;
-      velocity.current[1] += ny * strength;
-      velocity.current[2] += nz * strength;
+      const strength = (influenceRadius - dist) * 0.03;
+      velocity.current[0] += (dx / dist) * strength;
+      velocity.current[1] += (dy / dist) * strength;
+      velocity.current[2] += (dz / dist) * strength;
     }
 
     // Damping so they don't drift off forever
@@ -52,18 +53,31 @@ function InteractiveBall({ data, mouse }) {
     velocity.current[1] *= damping;
     velocity.current[2] *= damping;
 
-    // Final position = base position + velocity offset
+    // Final position
     const finalX = baseX + velocity.current[0];
     const finalY = baseY + velocity.current[1];
     const finalZ = baseZ + velocity.current[2];
 
     ref.current.position.set(finalX, finalY, finalZ);
 
-    // Slow spin for subtle motion
+    // Slow rotation
     ref.current.rotation.y += 0.01;
     ref.current.rotation.x += 0.006;
 
-    // Keep scale uniform (no hover effects)
+    // Color-shift over time in HSL
+    const mat = ref.current.material;
+    if (mat) {
+      const hueDeg = (baseHue + t * shiftSpeed * 30) % 360; // slow rotation through neon spectrum
+      const h = hueDeg / 360;
+      const s = sat / 100;
+      const l = light / 100;
+
+      mat.color.setHSL(h, s, l);
+      // emissive slightly brighter for a soft neon halo
+      mat.emissive.setHSL(h, s, Math.min(l + 0.2, 1));
+    }
+
+    // Keep scale constant
     ref.current.scale.set(1, 1, 1);
   });
 
@@ -71,18 +85,46 @@ function InteractiveBall({ data, mouse }) {
     <mesh ref={ref}>
       <sphereGeometry args={[radius, 32, 32]} />
       <meshStandardMaterial
-        color={color}
+        color="white" // will be overridden in useFrame
         metalness={0.4}
-        roughness={0.35}
-        emissive={"#000000"}
-        emissiveIntensity={0.0}
+        roughness={0.25}
+        emissive="#000000"
+        emissiveIntensity={0.05}
+      />
+    </mesh>
+  );
+}
+
+function HolographicGrid() {
+  const ref = useRef();
+
+  useFrame((state) => {
+    if (!ref.current) return;
+    const t = state.clock.getElapsedTime();
+
+    // Slight opacity pulse + tiny rotation jitter for holographic feel
+    const baseOpacity = 0.22;
+    const pulse = Math.sin(t * 0.8) * 0.05;
+    ref.current.material.opacity = baseOpacity + pulse;
+
+    ref.current.rotation.z = Math.sin(t * 0.15) * 0.08;
+  });
+
+  return (
+    <mesh position={[0, 0, -0.6]} ref={ref}>
+      <planeGeometry args={[6, 3.2, 20, 10]} />
+      <meshBasicMaterial
+        color="#41f5ff"
+        wireframe
+        transparent
+        opacity={0.25}
       />
     </mesh>
   );
 }
 
 export default function BallScene() {
-  const count = 40; // number of balls
+  const count = 40;
   const mouse = useRef([0, 0]);
 
   const balls = useMemo(() => {
@@ -90,21 +132,20 @@ export default function BallScene() {
     const maxTries = 8000;
     let tries = 0;
 
-    // Rough bounds for where the 3D text sits
-    const textWidth = 2.2;   // world units
-    const textHeight = 0.7;
-    const frontChance = 0.18; // fraction of balls in front of the text
+    const textWidth = 2.4;  // text area bounds in world units
+    const textHeight = 0.9;
+    const frontChance = 0.18;
 
     while (items.length < count && tries < maxTries) {
       tries++;
 
-      const radius = 0.25 + Math.random() * 0.35; // varying ball size
+      const radius = 0.25 + Math.random() * 0.35;
       const isFront = Math.random() < frontChance;
 
-      let x = (Math.random() - 0.5) * 4.5;
+      let x = (Math.random() - 0.5) * 4.8;
       let y = (Math.random() - 0.5) * 2.8;
 
-      // For front-layer balls, avoid the text area so they don't cover your name
+      // Avoid front-layer balls overlapping the text area
       if (isFront) {
         let safe = 0;
         while (
@@ -112,68 +153,56 @@ export default function BallScene() {
           Math.abs(y) < textHeight / 2 + radius * 1.2 &&
           safe < 30
         ) {
-          x = (Math.random() - 0.5) * 4.5;
+          x = (Math.random() - 0.5) * 4.8;
           y = (Math.random() - 0.5) * 2.8;
           safe++;
         }
       }
 
       const z = isFront
-        ? 0.3 + Math.random() * 0.4   // slightly in front of text plane
+        ? 0.3 + Math.random() * 0.4   // slightly in front of text
         : -1.4 - Math.random() * 2.2; // behind text
 
       const candidate = [x, y, z];
 
-      // Enforce non-intersection: distance >= sum of radii * margin
+      // Non-intersection check
       let ok = true;
-      for (let i = 0; i < items.length; i++) {
-        const other = items[i];
-        const ox = other.position[0];
-        const oy = other.position[1];
-        const oz = other.position[2];
-
-        const ddx = ox - candidate[0];
-        const ddy = oy - candidate[1];
-        const ddz = oz - candidate[2];
-        const d = Math.sqrt(ddx * ddx + ddy * ddy + ddz * ddz);
-
-        const minDist = (other.radius + radius) * 1.3; // margin to avoid overlap even while bobbing
-        if (d < minDist) {
+      for (const other of items) {
+        const dx = other.position[0] - x;
+        const dy = other.position[1] - y;
+        const dz = other.position[2] - z;
+        const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (d < (other.radius + radius) * 1.3) {
           ok = false;
           break;
         }
       }
       if (!ok) continue;
 
-    // Cyberpunk neon HSL generator
-// Generates hues in magenta → purple → blue → teal spectrum
-    const hueRanges = [
-    [280, 320],  // magenta → pink neon
-    [250, 280],  // ultraviolet / electric purple
-    [200, 230],  // electric blue
-    [170, 195]   // neon teal / aqua
-];
+      // Cyberpunk HSL color ranges: magenta → purple → blue → teal
+      const hueRanges = [
+        [280, 320], // magenta → hot pink
+        [250, 280], // ultraviolet purple
+        [200, 230], // cyber blue
+        [170, 195], // neon teal
+      ];
+      const [hMin, hMax] =
+        hueRanges[Math.floor(Math.random() * hueRanges.length)];
 
-    // pick one range randomly
-    const [hMin, hMax] = hueRanges[Math.floor(Math.random() * hueRanges.length)];
-
-    // saturation: high, neon
-    const sat = 70 + Math.random() * 25; // 70–95%
-
-    // lightness: varied so some balls glow, some feel deeper
-    const light = 45 + Math.random() * 25; // 45–70%
-
-    // final HSL color
-    const hue = hMin + Math.random() * (hMax - hMin);
-    const color = `hsl(${hue}, ${sat}%, ${light}%)`;
-
+      const baseHue = hMin + Math.random() * (hMax - hMin); // degrees
+      const sat = 70 + Math.random() * 25;   // 70–95%
+      const light = 45 + Math.random() * 25; // 45–70%
       const floatSpeed = 0.4 + Math.random() * 0.4;
+      const shiftSpeed = 0.4 + Math.random() * 0.8; // how fast hue cycles
 
       items.push({
         position: candidate,
         radius,
-        color,
+        baseHue,
+        sat,
+        light,
         floatSpeed,
+        shiftSpeed,
       });
     }
 
@@ -195,10 +224,17 @@ export default function BallScene() {
         mouse.current = [x, y];
       }}
     >
-      {/* Background + lighting */}
+      {/* Background & depth fog */}
       <color attach="background" args={["#050816"]} />
+      <fog attach="fog" args={["#070b25", 4, 13]} />
+
+      {/* Lighting */}
       <ambientLight intensity={0.6} />
       <directionalLight position={[5, 5, 5]} intensity={1.4} />
+      <pointLight position={[-4, -3, 2]} intensity={0.6} />
+
+      {/* Holographic grid behind the name */}
+      <HolographicGrid />
 
       {/* 3D Name */}
       <Text
@@ -211,11 +247,29 @@ export default function BallScene() {
         Kai Ohsawa
       </Text>
 
+      {/* Neon spheres */}
       <Suspense fallback={null}>
         {balls.map((data, i) => (
           <InteractiveBall key={i} data={data} mouse={mouse} />
         ))}
       </Suspense>
+
+      {/* Postprocessing: bloom, noise, vignette, glitch */}
+      <EffectComposer>
+        <Bloom
+          intensity={0.9}
+          luminanceThreshold={0.15}
+          luminanceSmoothing={0.9}
+          radius={0.8}
+        />
+        <Noise opacity={0.04} />
+        <Vignette eskil={false} offset={0.25} darkness={0.65} />
+        <Glitch
+          delay={[2, 5]}
+          duration={[0.4, 0.8]}
+          strength={[0.1, 0.3]}
+        />
+      </EffectComposer>
     </Canvas>
   );
 }
