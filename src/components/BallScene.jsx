@@ -13,7 +13,7 @@ import {
 /* ===========================
    INTERACTIVE NEON BALL
    =========================== */
-function InteractiveBall({ data, mouse, isMobile }) {
+function InteractiveBall({ data, mouse, isMobile, onBallClick }) {
   const ref = useRef();
   const velocity = useRef([0, 0, 0]);
   const { position, radius, baseHue, sat, light, floatSpeed, shiftSpeed } = data;
@@ -51,7 +51,7 @@ function InteractiveBall({ data, mouse, isMobile }) {
       velocity.current[2] += (dz / dist) * strength;
     }
 
-    // Damping: slightly higher on mobile so things settle quicker
+    // Damping
     const damping = isMobile ? 0.9 : 0.88;
     velocity.current[0] *= damping;
     velocity.current[1] *= damping;
@@ -83,7 +83,7 @@ function InteractiveBall({ data, mouse, isMobile }) {
   });
 
   return (
-    <mesh ref={ref}>
+    <mesh ref={ref} onClick={onBallClick}>
       <sphereGeometry args={[radius, 32, 32]} />
       <meshStandardMaterial
         color="white"
@@ -254,10 +254,9 @@ function NeonParticles({ particleCount }) {
 /* ===========================
    MAIN SCENE
    =========================== */
-export default function BallScene() {
+export default function BallScene({ onBallClick }) {
   const mouse = useRef([0, 0]);
 
-  // Simple runtime check; fine for a Vite SPA
   const isMobile =
     typeof window !== "undefined" && window.innerWidth < 768;
 
@@ -400,6 +399,7 @@ export default function BallScene() {
             data={data}
             mouse={mouse}
             isMobile={isMobile}
+            onBallClick={onBallClick}
           />
         ))}
       </Suspense>
