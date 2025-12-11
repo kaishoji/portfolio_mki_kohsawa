@@ -145,10 +145,26 @@ export default function BallScene() {
       }
       if (!ok) continue;
 
-      // Procedural forest green using HSL
-    const hue = 110 + Math.random() * 20;   // 110–130: deep forest greens
-    const sat = 35 + Math.random() * 25;    // less saturated → more earthy
-    const light = 15 + Math.random() * 25;  // dark → mid forest tones
+    // Cyberpunk neon HSL generator
+// Generates hues in magenta → purple → blue → teal spectrum
+    const hueRanges = [
+    [280, 320],  // magenta → pink neon
+    [250, 280],  // ultraviolet / electric purple
+    [200, 230],  // electric blue
+    [170, 195]   // neon teal / aqua
+];
+
+    // pick one range randomly
+    const [hMin, hMax] = hueRanges[Math.floor(Math.random() * hueRanges.length)];
+
+    // saturation: high, neon
+    const sat = 70 + Math.random() * 25; // 70–95%
+
+    // lightness: varied so some balls glow, some feel deeper
+    const light = 45 + Math.random() * 25; // 45–70%
+
+    // final HSL color
+    const hue = hMin + Math.random() * (hMax - hMin);
     const color = `hsl(${hue}, ${sat}%, ${light}%)`;
 
       const floatSpeed = 0.4 + Math.random() * 0.4;
