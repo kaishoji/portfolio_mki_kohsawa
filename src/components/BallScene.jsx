@@ -14,18 +14,18 @@ function InteractiveBall({ data, mouse }) {
 
     const t = state.clock.getElapsedTime() * floatSpeed;
 
-    // Very gentle bobbing so they feel alive but not chaotic
+    // Gentle bobbing so they feel alive but not chaotic
     const bobX = Math.cos(t * 0.6) * 0.03;
     const bobY = Math.sin(t) * 0.05;
     const baseX = position[0] + bobX;
     const baseY = position[1] + bobY;
     const baseZ = position[2];
 
-    // Map mouse [-1, 1] NDC to an approximate world plane near the text
+    // Mouse in normalized device coordinates [-1, 1]
     const [mx, my] = mouse.current;
-    const mouseWorldX = mx * 2.0;   // horizontal spread
-    const mouseWorldY = my * 1.5;   // vertical spread
-    const mouseWorldZ = 0.0;        // near the text plane
+    const mouseWorldX = mx * 2.0;   // horizontal mapping
+    const mouseWorldY = my * 1.5;   // vertical mapping
+    const mouseWorldZ = 0.0;        // near text plane
 
     // Vector from mouse to ball
     const dx = baseX - mouseWorldX;
@@ -33,10 +33,10 @@ function InteractiveBall({ data, mouse }) {
     const dz = baseZ - mouseWorldZ;
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-    // Push-away effect: if cursor is close, apply a small repulsive force
+    // Push-away effect when cursor is close
     const influenceRadius = 1.2;
     if (dist < influenceRadius && dist > 0.0001) {
-      const strength = (influenceRadius - dist) * 0.03; // smaller = gentler push
+      const strength = (influenceRadius - dist) * 0.03; // tweak for more/less push
       const nx = dx / dist;
       const ny = dy / dist;
       const nz = dz / dist;
@@ -46,24 +46,24 @@ function InteractiveBall({ data, mouse }) {
       velocity.current[2] += nz * strength;
     }
 
-    // Damping to keep things from drifting away forever
+    // Damping so they don't drift off forever
     const damping = 0.9;
     velocity.current[0] *= damping;
     velocity.current[1] *= damping;
     velocity.current[2] *= damping;
 
-    // Final position = base + small velocity offset
+    // Final position = base position + velocity offset
     const finalX = baseX + velocity.current[0];
     const finalY = baseY + velocity.current[1];
     const finalZ = baseZ + velocity.current[2];
 
     ref.current.position.set(finalX, finalY, finalZ);
 
-    // Slow spin just for a bit of life
+    // Slow spin for subtle motion
     ref.current.rotation.y += 0.01;
     ref.current.rotation.x += 0.006;
 
-    // Keep uniform scale (no hover scaling / highlight)
+    // Keep scale uniform (no hover effects)
     ref.current.scale.set(1, 1, 1);
   });
 
@@ -74,7 +74,7 @@ function InteractiveBall({ data, mouse }) {
         color={color}
         metalness={0.4}
         roughness={0.35}
-        emissive={"#000000"}       // no glow / highlight
+        emissive={"#000000"}
         emissiveIntensity={0.0}
       />
     </mesh>
@@ -82,30 +82,29 @@ function InteractiveBall({ data, mouse }) {
 }
 
 export default function BallScene() {
-  const count = 40; // slightly fewer for clarity
+  const count = 40; // number of balls
   const mouse = useRef([0, 0]);
 
-  // Pre-generate non-overlapping balls with respect for text area
   const balls = useMemo(() => {
     const items = [];
     const maxTries = 8000;
     let tries = 0;
 
-    const textWidth = 2.2;   // rough bounding box for name in world units
-    const textHeight = 0.7;  // height of the name area
+    // Rough bounds for where the 3D text sits
+    const textWidth = 2.2;   // world units
+    const textHeight = 0.7;
     const frontChance = 0.18; // fraction of balls in front of the text
 
     while (items.length < count && tries < maxTries) {
       tries++;
 
-      const radius = 0.25 + Math.random() * 0.35; // varying sizes
-
+      const radius = 0.25 + Math.random() * 0.35; // varying ball size
       const isFront = Math.random() < frontChance;
 
       let x = (Math.random() - 0.5) * 4.5;
       let y = (Math.random() - 0.5) * 2.8;
 
-      // Avoid placing front-layer balls directly over the text area
+      // For front-layer balls, avoid the text area so they don't cover your name
       if (isFront) {
         let safe = 0;
         while (
@@ -125,7 +124,7 @@ export default function BallScene() {
 
       const candidate = [x, y, z];
 
-      // Enforce non-intersection at spawn: distance >= sum of radii * margin
+      // Enforce non-intersection: distance >= sum of radii * margin
       let ok = true;
       for (let i = 0; i < items.length; i++) {
         const other = items[i];
@@ -138,7 +137,7 @@ export default function BallScene() {
         const ddz = oz - candidate[2];
         const d = Math.sqrt(ddx * ddx + ddy * ddy + ddz * ddz);
 
-        const minDist = (other.radius + radius) * 1.3; // 1.3 margin so bobbing won't make them intersect
+        const minDist = (other.radius + radius) * 1.3; // margin to avoid overlap even while bobbing
         if (d < minDist) {
           ok = false;
           break;
@@ -146,12 +145,11 @@ export default function BallScene() {
       }
       if (!ok) continue;
 
-      // Different shades of grey
-      const shade = 0.3 + Math.random() * 0.5; // 0.3–0.8
-      const hex = Math.round(shade * 255)
-        .toString(16)
-        .padStart(2, "0");
-      const color = `#${hex}${hex}${hex}`;
+      // Different hues of green using HSL
+      const hue = 110 + Math.random() * 40;    // 110–150: green spectrum
+      const sat = 55 + Math.random() * 30;     // 55–85% saturation
+      const light = 35 + Math.random() * 30;   // 35–65% lightness
+      const color = `hsl(${hue}, ${sat}%, ${light}%)`;
 
       const floatSpeed = 0.4 + Math.random() * 0.4;
 
