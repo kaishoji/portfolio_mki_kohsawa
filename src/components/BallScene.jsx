@@ -13,7 +13,7 @@ import {
 /* ===========================
    INTERACTIVE NEON BALL
    =========================== */
-function InteractiveBall({ data, mouse }) {
+function InteractiveBall({ data, mouse, isMobile }) {
   const ref = useRef();
   const velocity = useRef([0, 0, 0]);
   const { position, radius, baseHue, sat, light, floatSpeed, shiftSpeed } = data;
@@ -24,13 +24,14 @@ function InteractiveBall({ data, mouse }) {
     const t = state.clock.getElapsedTime();
 
     // Gentle idle bobbing
-    const bobX = Math.cos(t * floatSpeed * 0.6) * 0.03;
+    const bobFactor = isMobile ? 0.5 : 0.6;
+    const bobX = Math.cos(t * floatSpeed * bobFactor) * 0.03;
     const bobY = Math.sin(t * floatSpeed) * 0.05;
     const baseX = position[0] + bobX;
     const baseY = position[1] + bobY;
     const baseZ = position[2];
 
-    // Mouse mapping (NDC → pseudo-world plane)
+    // Mouse mapping (NDC → pseudo world plane)
     const [mx, my] = mouse.current;
     const mouseWorldX = mx * 2.0;
     const mouseWorldY = my * 1.5;
@@ -42,17 +43,16 @@ function InteractiveBall({ data, mouse }) {
     const dz = baseZ - mouseWorldZ;
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-    // Stronger push effect
-    const influenceRadius = 1.8; // larger influence area
+    const influenceRadius = isMobile ? 1.4 : 1.8;
     if (dist < influenceRadius && dist > 0.0001) {
-      const strength = (influenceRadius - dist) * 0.06; // stronger force
+      const strength = (influenceRadius - dist) * (isMobile ? 0.045 : 0.06);
       velocity.current[0] += (dx / dist) * strength;
       velocity.current[1] += (dy / dist) * strength;
       velocity.current[2] += (dz / dist) * strength;
     }
 
-    // Slightly less damping so you feel the shove more
-    const damping = 0.88;
+    // Damping: slightly higher on mobile so things settle quicker
+    const damping = isMobile ? 0.9 : 0.88;
     velocity.current[0] *= damping;
     velocity.current[1] *= damping;
     velocity.current[2] *= damping;
@@ -86,7 +86,7 @@ function InteractiveBall({ data, mouse }) {
     <mesh ref={ref}>
       <sphereGeometry args={[radius, 32, 32]} />
       <meshStandardMaterial
-        color="white" // will be overridden every frame
+        color="white"
         metalness={0.4}
         roughness={0.25}
         emissive="#000000"
@@ -99,7 +99,7 @@ function InteractiveBall({ data, mouse }) {
 /* ===========================
    HOLOGRAPHIC PARALLAX GRID
    =========================== */
-function HolographicGrid({ mouse }) {
+function HolographicGrid({ mouse, isMobile }) {
   const ref = useRef();
   const basePositions = useRef(null);
 
@@ -111,23 +111,20 @@ function HolographicGrid({ mouse }) {
     const posAttr = geom.attributes.position;
     const arr = posAttr.array;
 
-    // Cache original (flat) positions once
     if (!basePositions.current) {
       basePositions.current = Float32Array.from(arr);
     }
     const base = basePositions.current;
 
-    // Map mouse to plane space
     const [mx, my] = mouse.current;
     const planeWidth = 6;
     const planeHeight = 3.2;
     const targetX = (mx * planeWidth) / 2;
     const targetY = (my * planeHeight) / 2;
 
-    const bendRadius = 2.4;
-    const maxOffset = 0.4;
+    const bendRadius = isMobile ? 2.0 : 2.4;
+    const maxOffset = isMobile ? 0.25 : 0.4;
 
-    // Warp vertices toward the cursor (bulge toward camera)
     for (let i = 0; i < arr.length; i += 3) {
       const x0 = base[i];
       const y0 = base[i + 1];
@@ -140,8 +137,8 @@ function HolographicGrid({ mouse }) {
       const influence = Math.max(0, 1 - dist / bendRadius);
       const offset = influence * maxOffset;
 
-      // Smooth layered wave (adds sci-fi shimmer)
-      const wave = Math.sin(t * 1.2 + (x0 + y0) * 2.0) * 0.06 * influence;
+      const waveAmp = isMobile ? 0.04 : 0.06;
+      const wave = Math.sin(t * 1.2 + (x0 + y0) * 2.0) * waveAmp * influence;
 
       arr[i] = x0;
       arr[i + 1] = y0;
@@ -149,16 +146,14 @@ function HolographicGrid({ mouse }) {
     }
     posAttr.needsUpdate = true;
 
-    // Parallax tilt & slight movement
-    ref.current.rotation.x = -0.35 + my * 0.1;
-    ref.current.rotation.y = mx * 0.15;
-    ref.current.position.x = mx * 0.3;
-    ref.current.position.y = my * 0.2;
+    ref.current.rotation.x = -0.35 + my * 0.08;
+    ref.current.rotation.y = mx * 0.12;
+    ref.current.position.x = mx * 0.25;
+    ref.current.position.y = my * 0.18;
 
-    // Opacity pulse
     const mat = ref.current.material;
     if (mat) {
-      const baseOpacity = 0.24;
+      const baseOpacity = isMobile ? 0.18 : 0.24;
       const pulse = Math.sin(t * 1.1) * 0.04;
       mat.opacity = baseOpacity + pulse;
     }
@@ -166,7 +161,14 @@ function HolographicGrid({ mouse }) {
 
   return (
     <mesh position={[0, 0, -0.7]} ref={ref}>
-      <planeGeometry args={[6, 3.2, 40, 20]} />
+      <planeGeometry
+        args={[
+          6,
+          3.2,
+          isMobile ? 20 : 40, // fewer segments on mobile
+          isMobile ? 10 : 20,
+        ]}
+      />
       <meshBasicMaterial
         color="#41f5ff"
         wireframe
@@ -180,9 +182,8 @@ function HolographicGrid({ mouse }) {
 /* ===========================
    NEON PARTICLE STREAKS
    =========================== */
-function NeonParticles() {
+function NeonParticles({ particleCount }) {
   const ref = useRef();
-  const particleCount = 180;
 
   const { positions, speeds } = useMemo(() => {
     const positions = new Float32Array(particleCount * 3);
@@ -190,11 +191,10 @@ function NeonParticles() {
 
     for (let i = 0; i < particleCount; i++) {
       const ix = i * 3;
-      positions[ix + 0] = (Math.random() - 0.5) * 8;   // x
-      positions[ix + 1] = (Math.random() - 0.5) * 5;   // y
-      positions[ix + 2] = -3 - Math.random() * 5;      // z (behind balls & grid)
+      positions[ix + 0] = (Math.random() - 0.5) * 8;
+      positions[ix + 1] = (Math.random() - 0.5) * 5;
+      positions[ix + 2] = -3 - Math.random() * 5;
 
-      // streak speed
       speeds[i] = 0.6 + Math.random() * 1.4;
     }
 
@@ -207,19 +207,18 @@ function NeonParticles() {
 
     const posAttr = pts.geometry.attributes.position;
     const arr = posAttr.array;
+    const speedsArr = pts.userData.speeds;
 
     for (let i = 0; i < particleCount; i++) {
       const ix = i * 3;
-      // Move slightly in z and y to feel like drifting streaks
-      arr[ix + 2] += speeds[i] * delta;      // toward camera
-      arr[ix + 1] += delta * 0.1;            // slight upward drift
+      arr[ix + 2] += speedsArr[i] * delta;
+      arr[ix + 1] += delta * 0.08;
 
-      // Reset if too close
       if (arr[ix + 2] > -2.5) {
         arr[ix + 0] = (Math.random() - 0.5) * 8;
         arr[ix + 1] = (Math.random() - 0.5) * 5;
         arr[ix + 2] = -8 - Math.random() * 4;
-        speeds[i] = 0.6 + Math.random() * 1.4;
+        speedsArr[i] = 0.6 + Math.random() * 1.4;
       }
     }
 
@@ -227,7 +226,12 @@ function NeonParticles() {
   });
 
   return (
-    <points ref={ref}>
+    <points
+      ref={ref}
+      onUpdate={(pts) => {
+        pts.userData.speeds = speeds;
+      }}
+    >
       <bufferGeometry>
         <bufferAttribute
           attach="attributes-position"
@@ -251,8 +255,14 @@ function NeonParticles() {
    MAIN SCENE
    =========================== */
 export default function BallScene() {
-  const count = 40;
   const mouse = useRef([0, 0]);
+
+  // Simple runtime check; fine for a Vite SPA
+  const isMobile =
+    typeof window !== "undefined" && window.innerWidth < 768;
+
+  const count = isMobile ? 24 : 40;
+  const particleCount = isMobile ? 90 : 180;
 
   const balls = useMemo(() => {
     const items = [];
@@ -266,13 +276,12 @@ export default function BallScene() {
     while (items.length < count && tries < maxTries) {
       tries++;
 
-      const radius = 0.25 + Math.random() * 0.35;
+      const radius = 0.22 + Math.random() * 0.32;
       const isFront = Math.random() < frontChance;
 
-      let x = (Math.random() - 0.5) * 4.8;
-      let y = (Math.random() - 0.5) * 2.8;
+      let x = (Math.random() - 0.5) * 4.4;
+      let y = (Math.random() - 0.5) * 2.6;
 
-      // Avoid front-layer balls overlapping the name
       if (isFront) {
         let safe = 0;
         while (
@@ -280,15 +289,15 @@ export default function BallScene() {
           Math.abs(y) < textHeight / 2 + radius * 1.2 &&
           safe < 30
         ) {
-          x = (Math.random() - 0.5) * 4.8;
-          y = (Math.random() - 0.5) * 2.8;
+          x = (Math.random() - 0.5) * 4.4;
+          y = (Math.random() - 0.5) * 2.6;
           safe++;
         }
       }
 
       const z = isFront
         ? 0.3 + Math.random() * 0.4
-        : -1.4 - Math.random() * 2.2;
+        : -1.4 - Math.random() * 2.0;
 
       const candidate = [x, y, z];
 
@@ -316,9 +325,9 @@ export default function BallScene() {
       const [hMin, hMax] =
         hueRanges[Math.floor(Math.random() * hueRanges.length)];
 
-      const baseHue = hMin + Math.random() * (hMax - hMin); // degrees
-      const sat = 70 + Math.random() * 25;   // 70–95%
-      const light = 45 + Math.random() * 25; // 45–70%
+      const baseHue = hMin + Math.random() * (hMax - hMin);
+      const sat = 70 + Math.random() * 25;
+      const light = 45 + Math.random() * 25;
 
       const floatSpeed = 0.4 + Math.random() * 0.4;
       const shiftSpeed = 0.4 + Math.random() * 0.8;
@@ -345,12 +354,17 @@ export default function BallScene() {
         width: "100vw",
         height: "100vh",
       }}
-      camera={{ fov: 50, position: [0, 0, 5] }}
+      camera={{
+        fov: isMobile ? 55 : 50,
+        position: [0, 0, 5],
+      }}
+      dpr={isMobile ? [1, 1.3] : [1, 2]}
       onPointerMove={(e) => {
         const x = (e.clientX / window.innerWidth) * 2 - 1;
         const y = -((e.clientY / window.innerHeight) * 2 - 1);
         mouse.current = [x, y];
       }}
+      gl={{ antialias: !isMobile }}
     >
       {/* Background & depth fog */}
       <color attach="background" args={["#050816"]} />
@@ -361,11 +375,11 @@ export default function BallScene() {
       <directionalLight position={[5, 5, 5]} intensity={1.4} />
       <pointLight position={[-4, -3, 2]} intensity={0.6} />
 
-      {/* Holographic grid with parallax & bending */}
-      <HolographicGrid mouse={mouse} />
+      {/* Parallax holographic grid */}
+      <HolographicGrid mouse={mouse} isMobile={isMobile} />
 
-      {/* Neon particle streaks behind everything */}
-      <NeonParticles />
+      {/* Neon particle streaks */}
+      <NeonParticles particleCount={particleCount} />
 
       {/* 3D Name */}
       <Text
@@ -378,28 +392,35 @@ export default function BallScene() {
         Kai Ohsawa
       </Text>
 
-      {/* Neon cyber spheres */}
+      {/* Neon balls */}
       <Suspense fallback={null}>
         {balls.map((data, i) => (
-          <InteractiveBall key={i} data={data} mouse={mouse} />
+          <InteractiveBall
+            key={i}
+            data={data}
+            mouse={mouse}
+            isMobile={isMobile}
+          />
         ))}
       </Suspense>
 
-      {/* Postprocessing: bloom, noise, vignette, glitch */}
-      <EffectComposer>
+      {/* Postprocessing */}
+      <EffectComposer multisampling={isMobile ? 0 : 8}>
         <Bloom
-          intensity={0.9}
-          luminanceThreshold={0.15}
+          intensity={isMobile ? 0.6 : 0.9}
+          luminanceThreshold={0.18}
           luminanceSmoothing={0.9}
-          radius={0.8}
+          radius={0.7}
         />
-        <Noise opacity={0.04} />
-        <Vignette eskil={false} offset={0.25} darkness={0.65} />
-        <Glitch
-          delay={[2, 5]}
-          duration={[0.4, 0.8]}
-          strength={[0.1, 0.3]}
-        />
+        <Noise opacity={isMobile ? 0.03 : 0.04} />
+        <Vignette eskil={false} offset={0.25} darkness={0.6} />
+        {!isMobile && (
+          <Glitch
+            delay={[2, 5]}
+            duration={[0.4, 0.8]}
+            strength={[0.1, 0.3]}
+          />
+        )}
       </EffectComposer>
     </Canvas>
   );
