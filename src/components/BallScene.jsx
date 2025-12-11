@@ -384,7 +384,7 @@ export default function BallScene({ onBallClick }) {
       <group position={[0, 0, 0]}>
         {/* Glow outline behind text */}
         <Text
-          font="/fonts/Orbitron-Bold.ttf"
+          font="/portfolio_mki_kohsawa/fonts/Orbitron-Bold.ttf"
           fontSize={0.9}
           color="#00eaff"
           anchorX="center"
@@ -400,7 +400,7 @@ export default function BallScene({ onBallClick }) {
 
         {/* Main white text */}
         <Text
-          font="/fonts/Orbitron-Bold.ttf"
+          font="/portfolio_mki_kohsawa/fonts/Orbitron-Bold.ttf"
           fontSize={0.9}
           color="#ffffff"
           anchorX="center"
