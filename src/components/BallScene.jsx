@@ -1,6 +1,7 @@
 // src/components/BallScene.jsx
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Suspense, useMemo, useRef, useState } from "react";
+import { Text } from "@react-three/drei";
 
 function InteractiveBall({ data, mouse }) {
   const ref = useRef();
@@ -23,7 +24,7 @@ function InteractiveBall({ data, mouse }) {
     const [mx, my] = mouse.current;
     const mouseWorldX = mx * 2.0;
     const mouseWorldY = my * 1.2;
-    const mouseWorldZ = -0.5; // plane roughly near your name
+    const mouseWorldZ = -0.5; // near the 3D text plane
 
     // Push-away force when cursor is near
     const posNow = [baseX, baseY, baseZ];
@@ -32,7 +33,7 @@ function InteractiveBall({ data, mouse }) {
     const dz = posNow[2] - mouseWorldZ;
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-    const influenceRadius = 2.2;
+    const influenceRadius = 2.0;
     if (dist < influenceRadius && dist > 0.001) {
       const strength = (influenceRadius - dist) * 0.012;
       const nx = dx / dist;
@@ -64,12 +65,12 @@ function InteractiveBall({ data, mouse }) {
     ref.current.rotation.y += 0.01;
     ref.current.rotation.x += 0.006;
 
-    // Hover scale
+    // Hover scale (manual interpolation to avoid Vector3 fuss)
     const targetScale = hovered ? 1.4 : 1;
-    ref.current.scale.lerp(
-      { x: targetScale, y: targetScale, z: targetScale },
-      0.12
-    );
+    const s = ref.current.scale;
+    s.x += (targetScale - s.x) * 0.12;
+    s.y += (targetScale - s.y) * 0.12;
+    s.z += (targetScale - s.z) * 0.12;
   });
 
   return (
@@ -91,7 +92,7 @@ function InteractiveBall({ data, mouse }) {
 }
 
 export default function BallScene() {
-  const count = 55;
+  const count = 50; // tuned density
   const mouse = useRef([0, 0]);
 
   const balls = useMemo(() => {
@@ -99,8 +100,8 @@ export default function BallScene() {
     const maxTries = 7000;
     let tries = 0;
 
-    const frontProbability = 0.25;      // fewer in front
-    const holeRadius = 1.3;             // "no-ball" radius around center for front layer
+    const frontProbability = 0.2;  // fewer balls in front
+    const holeRadius = 1.1;        // clear zone around text in front
 
     while (items.length < count && tries < maxTries) {
       tries++;
@@ -109,11 +110,10 @@ export default function BallScene() {
 
       const isFront = Math.random() < frontProbability;
 
-      // base x/y range
       let x = (Math.random() - 0.5) * 4.2;
       let y = (Math.random() - 0.5) * 2.8;
 
-      // For front-layer balls, avoid the center so they don't cover the text
+      // In front layer, avoid the center “no-fly zone” so text stays readable
       if (isFront) {
         let r2 = x * x + y * y;
         let safeguard = 0;
@@ -126,8 +126,8 @@ export default function BallScene() {
       }
 
       const z = isFront
-        ? 0.4 + Math.random() * 0.7   // in front layer
-        : -1.4 - Math.random() * 2.4; // behind layer
+        ? 0.4 + Math.random() * 0.7   // front layer
+        : -1.4 - Math.random() * 2.4; // back layer
 
       const candidatePos = [x, y, z];
 
@@ -175,7 +175,7 @@ export default function BallScene() {
         left: 0,
         width: "100vw",
         height: "100vh",
-        zIndex: -1, // keep it behind your HTML (name, navbar, etc.)
+        zIndex: -1, // always behind DOM content
       }}
       camera={{ position: [0, 0, 5], fov: 50 }}
       onPointerMove={(e) => {
@@ -190,6 +190,18 @@ export default function BallScene() {
       <ambientLight intensity={0.6} />
       <directionalLight position={[5, 5, 5]} intensity={1.4} />
       <pointLight position={[-4, -3, 2]} intensity={0.7} />
+
+      {/* 3D name in the scene */}
+      <Text
+        position={[0, 0.2, -0.3]}
+        fontSize={0.9}
+        color="#ffffff"
+        anchorX="center"
+        anchorY="middle"
+        letterSpacing={0.05}
+      >
+        Kai Ohsawa
+      </Text>
 
       <Suspense fallback={null}>
         {balls.map((data, i) => (
