@@ -1,7 +1,6 @@
 // src/components/BallScene.jsx
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Suspense, useMemo, useRef, useState } from "react";
-import { Text } from "@react-three/drei";
 
 function InteractiveBall({ data, mouse }) {
   const ref = useRef();
@@ -16,17 +15,17 @@ function InteractiveBall({ data, mouse }) {
     const t = state.clock.elapsedTime * floatSpeed;
 
     // Gentle base bobbing
-    const baseX = position[0] + Math.cos(t * 0.6) * 0.08;
-    const baseY = position[1] + Math.sin(t) * 0.12;
+    const baseX = position[0] + Math.cos(t * 0.6) * 0.06;
+    const baseY = position[1] + Math.sin(t) * 0.1;
     const baseZ = position[2];
 
-    // Mouse in normalized device coords [-1, 1]
+    // Mouse position in [-1, 1]
     const [mx, my] = mouse.current;
     const mouseWorldX = mx * 2.0;
     const mouseWorldY = my * 1.2;
-    const mouseWorldZ = -1.0; // plane around the text
+    const mouseWorldZ = -0.5; // plane roughly near your name
 
-    // Push away from mouse when close
+    // Push-away force when cursor is near
     const posNow = [baseX, baseY, baseZ];
     const dx = posNow[0] - mouseWorldX;
     const dy = posNow[1] - mouseWorldY;
@@ -35,7 +34,7 @@ function InteractiveBall({ data, mouse }) {
 
     const influenceRadius = 2.2;
     if (dist < influenceRadius && dist > 0.001) {
-      const strength = (influenceRadius - dist) * 0.015;
+      const strength = (influenceRadius - dist) * 0.012;
       const nx = dx / dist;
       const ny = dy / dist;
       const nz = dz / dist;
@@ -50,10 +49,10 @@ function InteractiveBall({ data, mouse }) {
     velocity.current[2] *= 0.9;
 
     // Subtle parallax follow
-    const parallaxStrength = 0.35;
+    const parallaxStrength = 0.3;
     const depthFactor = 1 + Math.abs(baseZ);
-    const parallaxX = mx * parallaxStrength * 0.2 * depthFactor;
-    const parallaxY = my * parallaxStrength * 0.2 * depthFactor;
+    const parallaxX = mx * parallaxStrength * 0.15 * depthFactor;
+    const parallaxY = my * parallaxStrength * 0.15 * depthFactor;
 
     const finalX = baseX + parallaxX + velocity.current[0];
     const finalY = baseY + parallaxY + velocity.current[1];
@@ -61,7 +60,7 @@ function InteractiveBall({ data, mouse }) {
 
     ref.current.position.set(finalX, finalY, finalZ);
 
-    // Spin
+    // Slow spin
     ref.current.rotation.y += 0.01;
     ref.current.rotation.x += 0.006;
 
@@ -85,7 +84,7 @@ function InteractiveBall({ data, mouse }) {
         metalness={0.4}
         roughness={0.3}
         emissive={color}
-        emissiveIntensity={hovered ? 1.8 : 0.35}
+        emissiveIntensity={hovered ? 1.6 : 0.35}
       />
     </mesh>
   );
@@ -95,29 +94,44 @@ export default function BallScene() {
   const count = 55;
   const mouse = useRef([0, 0]);
 
-  // Generate balls with varied size, grey, and depth
   const balls = useMemo(() => {
     const items = [];
     const maxTries = 7000;
     let tries = 0;
+
+    const frontProbability = 0.25;      // fewer in front
+    const holeRadius = 1.3;             // "no-ball" radius around center for front layer
 
     while (items.length < count && tries < maxTries) {
       tries++;
 
       const radius = 0.22 + Math.random() * 0.4;
 
-      // decide if this ball is in front or behind the text
-      const front = Math.random() < 0.35; // ~35% in front
-      const z = front
-        ? 0.25 + Math.random() * 0.9   // in front of text (z ~ 0)
-        : -1.4 - Math.random() * 2.4;  // behind text
+      const isFront = Math.random() < frontProbability;
 
-      const x = (Math.random() - 0.5) * 4.2;
-      const y = (Math.random() - 0.5) * 2.8;
+      // base x/y range
+      let x = (Math.random() - 0.5) * 4.2;
+      let y = (Math.random() - 0.5) * 2.8;
+
+      // For front-layer balls, avoid the center so they don't cover the text
+      if (isFront) {
+        let r2 = x * x + y * y;
+        let safeguard = 0;
+        while (r2 < holeRadius * holeRadius && safeguard < 20) {
+          x = (Math.random() - 0.5) * 4.2;
+          y = (Math.random() - 0.5) * 2.8;
+          r2 = x * x + y * y;
+          safeguard++;
+        }
+      }
+
+      const z = isFront
+        ? 0.4 + Math.random() * 0.7   // in front layer
+        : -1.4 - Math.random() * 2.4; // behind layer
 
       const candidatePos = [x, y, z];
 
-      // keep them from overlapping, respecting radius
+      // prevent overlaps
       let ok = true;
       for (let i = 0; i < items.length; i++) {
         const other = items[i];
@@ -133,7 +147,7 @@ export default function BallScene() {
       }
       if (!ok) continue;
 
-      // random grey shade
+      // Grey shade
       const shade = 0.3 + Math.random() * 0.6;
       const hex = Math.round(shade * 255)
         .toString(16)
@@ -161,7 +175,7 @@ export default function BallScene() {
         left: 0,
         width: "100vw",
         height: "100vh",
-        zIndex: -1, // stay behind HTML content
+        zIndex: -1, // keep it behind your HTML (name, navbar, etc.)
       }}
       camera={{ position: [0, 0, 5], fov: 50 }}
       onPointerMove={(e) => {
@@ -170,26 +184,12 @@ export default function BallScene() {
         mouse.current = [x, y];
       }}
     >
-      {/* Background & fog */}
       <color attach="background" args={["#050816"]} />
       <fog attach="fog" args={["#050816", 4, 13]} />
 
-      {/* Lights */}
       <ambientLight intensity={0.6} />
       <directionalLight position={[5, 5, 5]} intensity={1.4} />
       <pointLight position={[-4, -3, 2]} intensity={0.7} />
-
-      {/* 3D Name */}
-      <Text
-        position={[0, 0, 0]}
-        fontSize={0.9}
-        color="#ffffff"
-        anchorX="center"
-        anchorY="middle"
-        letterSpacing={0.05}
-      >
-        Kai Ohsawa
-      </Text>
 
       <Suspense fallback={null}>
         {balls.map((data, i) => (

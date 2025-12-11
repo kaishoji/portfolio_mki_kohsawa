@@ -9,28 +9,31 @@ export default function App() {
       {/* 3D background */}
       <BallScene />
 
-      {/* UI on top */}
+      {/* Top navigation bar */}
       <Navbar />
 
       <main>
+        {/* HOME / HERO SECTION */}
         <section id="home" className="section hero">
+          <h1 className="hero-name">Kai Ohsawa</h1>
           <p className="hero-tagline">
             Developer · Designer · Curious Human
           </p>
         </section>
 
+        {/* ABOUT SECTION */}
         <section id="about" className="section">
           <h2>About</h2>
           <p>
-            Write a short blurb about yourself here: what you build, what you
-            love, your tech stack, etc.
+            Hello! I am a junior database administrator for the statewide financial system!
           </p>
         </section>
 
+        {/* CONTACT SECTION */}
         <section id="contact" className="section">
           <h2>Contact me</h2>
           <p>
-            Drop your email, links to socials, or a contact form here.
+            kaishoji.oh@gmail.com
           </p>
         </section>
       </main>

@@ -121,7 +121,7 @@ main {
 
 .section {
   min-height: 100vh;
-  padding: 88px 2rem 3rem; /* extra top padding for navbar */
+  padding: 88px 2rem 3rem; /* extra top padding so it's not under the navbar */
   display: flex;
   flex-direction: column;
   justify-content: center;
